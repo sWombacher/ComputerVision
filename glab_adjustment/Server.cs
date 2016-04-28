@@ -6,6 +6,7 @@ using System.Text;
 // socket stuff
 using System.Net;
 using System.Net.Sockets;
+using System.Drawing;
 using Emgu.CV;
 using Emgu.CV.Structure;
 using GLab.Core;
@@ -18,6 +19,7 @@ namespace GLab.Example.VrAibo
         {
             NO_ACTION,
             CLOSE_CONNECTION, DISCONNECTED,
+            INC_SPEED, DEC_SPEED,
             MOVE_FORWARD, MOVE_LEFT, MOVE_RIGHT, MOVE_BACKWARD,
             ROTATE_LEFT, ROTATE_RIGHT,
             HEAD_LEFT, HEAD_RIGHT, HEAD_UP, HEAD_DOWN
@@ -28,6 +30,8 @@ namespace GLab.Example.VrAibo
         IPAddress _ipAddress;
         IPEndPoint _localEndPoint;
         Socket _handler;
+
+        byte[] _buffer = new byte[256 * 256 * 3];
 
         public Server(int port)
         {
@@ -74,11 +78,28 @@ namespace GLab.Example.VrAibo
             }
         }
 
-        public bool sendImage(Image<Rgb, byte> img)
+        public bool sendImage(Bitmap img)
         {
+            for (int y = 0, bufferIter = 0; y < img.Height; ++y)
+            {
+                for (int x = 0; x < img.Width; ++x)
+                {
+                    _buffer[bufferIter++] = (byte)img.GetPixel(x, y).B;
+                    _buffer[bufferIter++] = (byte)img.GetPixel(x, y).G;
+                    _buffer[bufferIter++] = (byte)img.GetPixel(x, y).R;
+                }
+            }
             try
             {
-                _handler.Send(img.Bytes);
+                int sentData = 0;
+                sentData += _handler.Send(_buffer);
+                while (sentData != _buffer.Length) 
+                {
+                    byte[] shitCSharp = new byte[_buffer.Length - sentData];
+                    for (int i = 0; i < shitCSharp.Length; ++i)
+                        shitCSharp[i] = _buffer[sentData + i];
+                    sentData += _handler.Send(shitCSharp);
+                } 
                 return true;
             }
             catch (Exception e)
@@ -103,6 +124,14 @@ namespace GLab.Example.VrAibo
                 {
                     return Server.ClientAction.CLOSE_CONNECTION;
                 }
+                else if (_data == "INC_SPEED")
+                {
+                    return Server.ClientAction.INC_SPEED;
+                }
+                else if (_data == "DEC_SPEED")
+                {
+                    return Server.ClientAction.DEC_SPEED;
+                }
                 else if (_data == "MOVE_FORWARD")
                 {
                     return Server.ClientAction.MOVE_FORWARD;
@@ -115,7 +144,7 @@ namespace GLab.Example.VrAibo
                 {
                     return Server.ClientAction.MOVE_RIGHT;
                 }
-                else if (_data == " MOVE_BACKWARD")
+                else if (_data == "MOVE_BACKWARD")
                 {
                     return Server.ClientAction.MOVE_BACKWARD;
                 }

@@ -34,9 +34,10 @@ namespace GLab.Example.VrAibo
         private Server _server;
         private readonly static int PORT = 11000;
         private bool _connected = false;
+        private float _moveDistance = 1f;
 
-        private static readonly float MOVE_DISTANCE = 1f;
-        private static readonly float ROTATION_DEGREE = 10f;
+        private static readonly float SPEED_ADJUSTMENT = 0.1f;
+        private static readonly float ROTATION_DEGREE = 5f;
 
 
         public VrAiboExample()
@@ -94,9 +95,9 @@ namespace GLab.Example.VrAibo
             _vrAibo.Dispose();
             _frmEyeCenter.Dispose();
             _frmVrAiboRemote.Dispose();
-            Setup();
 
-            Thread.Sleep(10);
+            _moveDistance = 1f;
+            _vrAibo = new VirtualAibo.VrAibo(_parcours) { Position = new Vector2(0, 50) };
         }
 
         public override void Run()
@@ -117,12 +118,11 @@ namespace GLab.Example.VrAibo
         }
 
         private void ImageProcessing()
-        { 
-            // Get bitmap from center eye camera...
-            Bitmap centerEye = (Bitmap) _vrAibo.GetBitmapCenterEye();
-            // ...and create a new RasterImage...
-            Image<Rgb, byte> center = new Image<Rgb, byte>(centerEye);
-
+        {
+            Bitmap leftEye = (Bitmap)_vrAibo.GetBitmapLeftEye();
+            Bitmap centerEye = (Bitmap)_vrAibo.GetBitmapCenterEye();
+            Bitmap rightEye = (Bitmap)_vrAibo.GetBitmapRightEye();
+            
             if (!_connected)
             {
                 if (_server != null)
@@ -130,7 +130,17 @@ namespace GLab.Example.VrAibo
                 waitClient();
             }
 
-            if (!_server.sendImage(center))
+            if (!_server.sendImage(leftEye))
+            {
+                _connected = false;
+                return;
+            }
+            if (!_server.sendImage(centerEye))
+            {
+                _connected = false;
+                return;
+            }
+            if (!_server.sendImage(rightEye))
             {
                 _connected = false;
                 return;
@@ -139,7 +149,7 @@ namespace GLab.Example.VrAibo
             Func<float, bool> moveAngle = f =>
             {
                 _vrAibo.Turn(f);
-                _vrAibo.Walk(VrAiboExample.MOVE_DISTANCE);
+                _vrAibo.Walk(_moveDistance);
                 _vrAibo.Turn(-f);
                 return true;
             };
@@ -152,8 +162,16 @@ namespace GLab.Example.VrAibo
                     //_server.dissconnetct();
                     //_connected = false;
                     break;
+                case Server.ClientAction.INC_SPEED:
+                    _moveDistance += SPEED_ADJUSTMENT;
+                    Logger.Instance.LogInfo("Speed : " + _moveDistance);
+                    break;
+                case Server.ClientAction.DEC_SPEED:
+                    _moveDistance -= SPEED_ADJUSTMENT;
+                    Logger.Instance.LogInfo("Speed : " + _moveDistance);
+                    break;
                 case Server.ClientAction.MOVE_FORWARD:
-                    _vrAibo.Walk(VrAiboExample.MOVE_DISTANCE);
+                    _vrAibo.Walk(_moveDistance);
                     break;
                 case Server.ClientAction.MOVE_LEFT:
                     moveAngle(90);
@@ -178,9 +196,11 @@ namespace GLab.Example.VrAibo
                     break;
             }
             return;
-            #region OLD_CODE
             /*
+            #region OLD_CODE
+
             // Get red-channel
+            Image<Rgb, byte> center = new Image<Rgb, byte>(centerEye);
             Image<Rgb, byte> channelRed = new Image<Rgb, byte>(center.Width, center.Height);
             
             // set "channel of interest" (coi) to red
@@ -225,8 +245,8 @@ namespace GLab.Example.VrAibo
                 _vrAibo.Walk(0.3f);
             }
             _frmEyeCenter.SetImage(channelRed);
-            */
             #endregion
+            */
         }
     }
 }
