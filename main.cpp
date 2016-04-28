@@ -1,5 +1,5 @@
 #include <boost/asio.hpp>
-#include <opencv2\opencv.hpp>
+#include <opencv2/opencv.hpp>
 
 #include <iostream>
 #include <thread>
@@ -10,7 +10,7 @@ using namespace std::chrono_literals;
 int main(int argc, char* argv[])
 {
 	try {
-		const char* port = "5000";
+        const char* port = "11000";
 		const char* addr = "192.168.2.192";
 
 		boost::asio::io_service io_service;
