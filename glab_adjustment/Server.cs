@@ -42,7 +42,7 @@ namespace GLab.Example.VrAibo
             // Create a TCP/IP socket.
             _listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             _listener.Bind(_localEndPoint);
-            _listener.Listen(10);
+            _listener.Listen(1);
         }
 
         // Incoming data from the client.
@@ -59,19 +59,27 @@ namespace GLab.Example.VrAibo
         }
         public void dissconnetct()
         {
-            _handler.Shutdown(SocketShutdown.Both);
-            _handler.Close();
+            if (_handler != null)
+            {
+                if (_handler.Connected)
+                    _handler.Shutdown(SocketShutdown.Both);
+                _handler.Close();
+            }
+
+            if (_listener != null)
+            {
+                if (_listener.Connected)
+                    _listener.Shutdown(SocketShutdown.Both);
+                _listener.Close();
+            }
         }
 
         public bool sendImage(Image<Rgb, byte> img)
         {
             try
             {
-                if (!_handler.Connected)
-                {
-                    _handler.Send(img.Bytes);
-                    return true;
-                }
+                _handler.Send(img.Bytes);
+                return true;
             }
             catch (Exception e)
             {
@@ -82,10 +90,6 @@ namespace GLab.Example.VrAibo
         {
             try
             {
-                // An incoming connection needs to be processed.
-                if (!_handler.Connected)
-                    return Server.ClientAction.DISCONNECTED;
-
                 byte[] bytes = new byte[256];
                 int bytesRec = _handler.Receive(bytes);
                 _data = Encoding.ASCII.GetString(bytes, 0, bytesRec);

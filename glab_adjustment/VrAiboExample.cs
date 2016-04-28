@@ -12,6 +12,7 @@ using GLab.VirtualAibo;
 using GLab.VirtualAibo.Forms;
 using Microsoft.Xna.Framework;
 using Color = System.Drawing.Color;
+using System.Threading;
 
 #endregion
 
@@ -31,7 +32,7 @@ namespace GLab.Example.VrAibo
 
 
         private Server _server;
-        private readonly static int PORT = 5000;
+        private readonly static int PORT = 11000;
         private bool _connected = false;
 
         private static readonly float MOVE_DISTANCE = 1f;
@@ -94,6 +95,8 @@ namespace GLab.Example.VrAibo
             _frmEyeCenter.Dispose();
             _frmVrAiboRemote.Dispose();
             Setup();
+
+            Thread.Sleep(10);
         }
 
         public override void Run()
@@ -121,7 +124,12 @@ namespace GLab.Example.VrAibo
             Image<Rgb, byte> center = new Image<Rgb, byte>(centerEye);
 
             if (!_connected)
-                this.waitClient();
+            {
+                if (_server != null)
+                    _server.dissconnetct();
+                waitClient();
+            }
+
             if (!_server.sendImage(center))
             {
                 _connected = false;
@@ -141,8 +149,8 @@ namespace GLab.Example.VrAibo
                 case Server.ClientAction.NO_ACTION:
                 case Server.ClientAction.CLOSE_CONNECTION:
                 case Server.ClientAction.DISCONNECTED:
-                    _server.dissconnetct();
-                    _connected = false;
+                    //_server.dissconnetct();
+                    //_connected = false;
                     break;
                 case Server.ClientAction.MOVE_FORWARD:
                     _vrAibo.Walk(VrAiboExample.MOVE_DISTANCE);
