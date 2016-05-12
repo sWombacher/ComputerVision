@@ -1,6 +1,8 @@
 project(ComputerVision)
 cmake_minimum_required(VERSION 3.1)
 
+include_directories(include)
+
 set(CMAKE_BUILD_TYPE "Debug")
 #set(CMAKE_BUILD_TYPE "Release")
 
@@ -21,5 +23,5 @@ if(OPENMP_FOUND)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 endif()
 
-add_executable(${PROJECT_NAME} main.cpp cv.h cv.cpp)
+add_executable(${PROJECT_NAME} main.cpp include/cv.h src/cv.cpp)
 target_link_libraries(${PROJECT_NAME} ${Boost_LIBRARIES} ${OpenCV_LIBS})
