@@ -4,6 +4,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/ximgproc.hpp>
+#include "transmissionProtocol.hpp"
 #include <vector>
 #include <array>
 
@@ -36,14 +37,21 @@ private:
     std::vector<AlternativePath> m_Alternatives;
     std::vector<cv::Point> m_VisitedTurnings;
 
+    /// general data
     static constexpr int CENTER_WIDTH = 256;
     static constexpr int CENTER_HEIGHT = 256;
+
+    static constexpr float CAMERA_ROTATION = 5.f;
+    static constexpr float MOVEMENTSPEED = 1.f;
 
     /// follow path
     static constexpr float SEED_START_Y = 0.6f;
     static constexpr int NUM_SEEDS_Y = 8;
     static constexpr int NUM_SEEDS_X = NUM_SEEDS_Y / SEED_START_Y;
     static constexpr int SEED_COUNT = NUM_SEEDS_Y * NUM_SEEDS_X;
+    static constexpr int PATH_LOST_COUNT = 3;
+
+    int m_LostPathCounter = 0;
     float m_CurrentAngle = 0.f;
 
     static void _SETUP_SEEDS();
@@ -53,6 +61,13 @@ private:
     std::vector<cv::Point2i> _getVectorContainingMostSeeds(const cv::Mat& center);
 
     /// Search path
+    enum class SEARCH_PATH_TYPE{ NO_SEARCH, MOVING, SEARCH_0_DEGREE, SEARCH_180_DEGREE, SEARCH_360_DEGREE };
+    SEARCH_PATH_TYPE m_SearchType = SEARCH_PATH_TYPE::SEARCH_360_DEGREE;
+    float m_Search_CurrentRotation = 1.f / 0.f;
+    float m_Search_RotationStart = -1.f;
+    float m_Search_RotationEnd = -1.f;
+
+    std::vector<int> m_SearchResults;
     Action _searchPath(const cv::Mat& center);
 
     /// Doge objects
