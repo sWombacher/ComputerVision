@@ -1,3 +1,6 @@
+#set(CMAKE_C_COMPILER "clang")
+#set(CMAKE_CXX_COMPILER "clang++")
+
 project(ComputerVision)
 cmake_minimum_required(VERSION 3.1)
 
@@ -23,5 +26,5 @@ if(OPENMP_FOUND)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 endif()
 
-add_executable(${PROJECT_NAME} main.cpp include/cv.h src/cv.cpp)
+add_executable(${PROJECT_NAME} main.cpp include/cv.h include/transmissionProtocol.hpp src/cv.cpp)
 target_link_libraries(${PROJECT_NAME} ${Boost_LIBRARIES} ${OpenCV_LIBS})
