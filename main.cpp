@@ -23,24 +23,6 @@
 #include <boost/asio.hpp>
 #endif
 
-std::string getSendString(Vision::Action action){
-#define CASE(str) \
-    case Vision::Action::str:\
-    return #str; \
-    break;
-
-    switch (action){
-    CASE(NO_ACTION)
-    CASE(CLOSE_CONNECTION) CASE(DISCONNECTED)
-    CASE(INC_SPEED) CASE(DEC_SPEED)
-    CASE(MOVE_FORWARD) CASE(MOVE_LEFT) CASE(MOVE_RIGHT) CASE(MOVE_BACKWARD)
-    CASE(ROTATE_LEFT) CASE(ROTATE_RIGHT)
-    CASE(HEAD_LEFT) CASE(HEAD_RIGHT) CASE(HEAD_UP) CASE(HEAD_DOWN)
-    default:
-        return "NO_ACTION";
-    }
-    #undef CASE
-}
 
 int main(int, char**)
 {
@@ -111,8 +93,10 @@ int main(int, char**)
             receiveImage(left ,false);
             receiveImage(right,false);
 
-            Vision::Action action = vision.getAction(left, center, right);
-            std::string toSend = getSendString(action);
+            std::vector<Transmission> actions = vision.getAction(left, center, right);
+            std::string toSend(actions.size() * Transmission::WRITE_SIZE, '\0');
+            for (size_t i = 0; i < actions.size(); i += Transmission::WRITE_SIZE)
+                actions[i].writeData(&toSend[0], i);
             socket.send(boost::asio::buffer(toSend.data(), toSend.size()), 0, ec);
             if (ec)
                 throw std::runtime_error("connection lost");

@@ -3,7 +3,7 @@
 #pragma once
 #include <inttypes.h>
 struct Transmission {
-    enum class Action : int8_t {
+    enum class Action : char {
         NO_ACTION = 0,
 
         // optional features
@@ -14,10 +14,13 @@ struct Transmission {
         ROTATE_LEFT, ROTATE_RIGHT,
         HEAD_LEFT, HEAD_RIGHT, HEAD_UP, HEAD_DOWN
     };
+    Transmission(Action a, int16_t parameter = -1): action(a), actionParameter(parameter){}
 
     Action  action;
     int16_t actionParameter;
-    int writeData(int8_t* buffer, int bufferOffset){
+
+    static constexpr int WRITE_SIZE = 3;
+    void writeData(char* buffer, int bufferOffset){
         static_assert(sizeof(action) == 1, R"(Byte size of "Action" is greater than 1)");
         static_assert(sizeof(actionParameter) == 2, R"(Byte size of "ActionParameter" is not equel to 2)");
 
@@ -25,7 +28,6 @@ struct Transmission {
         buffer[bufferOffset + 0] = static_cast<char>(action);
         buffer[bufferOffset + 1] = tmp[0];
         buffer[bufferOffset + 2] = tmp[1];
-        return 3;
     }
 };
 #endif // H_H_TRANSMISSION_H_H

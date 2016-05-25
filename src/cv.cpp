@@ -20,7 +20,7 @@
 
 std::array<cv::Point2i, Vision::SEED_COUNT> Vision::SEEDS = {};
 
-Vision::Action Vision::getAction(cv::Mat &left, cv::Mat& center, cv::Mat &right) {
+std::vector<Transmission> Vision::getAction(cv::Mat &left, cv::Mat& center, cv::Mat &right) {
     cv::Mat center_gray, disparity;
     cv::cvtColor(center, center_gray, CV_RGB2GRAY);
     IMSHOW_D(center_gray);
@@ -40,31 +40,31 @@ Vision::Action Vision::getAction(cv::Mat &left, cv::Mat& center, cv::Mat &right)
     cv::imshow("Disparity", disparity);
     cv::imshow("Center", center);
     cv::waitKey(1);
-    Vision::Action action;
+    std::vector<Transmission> actions;
 
     // object in front of camera?
     // only dodge if aibo is not searching for a path
     if (this->m_SearchType == Vision::SEARCH_PATH_TYPE::NO_SEARCH){
-        action = this->_dogeObject(disparity);
-        if (action != Vision::Action::NO_ACTION)
-            return action;
+        actions = this->_dogeObject(disparity);
+        if (actions.size())
+            return actions;
     }
 
     // go back on track
     if (!this->m_OnPath){
-        action = this->_searchPath(center_gray);
-        if (action != Vision::Action::NO_ACTION)
-            return action;
+        actions = this->_searchPath(center_gray);
+        if (actions.size())
+            return actions;
     }
 
     // follow current path
-    action = this->_followPath(center_gray);
-    if (action != Vision::Action::NO_ACTION)
-        return action;
+    actions = this->_followPath(center_gray);
+    if (actions.size())
+        return actions;
 
     // no movement set
-    // try moving forward for new images
-    return Vision::Action::MOVE_FORWARD;
+    // try moving forward and receive new images
+    return { Transmission::Action::MOVE_FORWARD };
 }
 
 void Vision::_SETUP_SEEDS(){
@@ -85,8 +85,8 @@ void Vision::_SETUP_SEEDS(){
     }
 }
 
-Vision::Action Vision::_followPath(const cv::Mat& center){
-    Vision::Action ret = Vision::Action::NO_ACTION;
+std::vector<Transmission> Vision::_followPath(const cv::Mat& center){
+    std::vector<Transmission> ret;
     cv::Mat center_cpy = center.clone();
 
     // path following uses a seeded approach
@@ -114,7 +114,7 @@ Vision::Action Vision::_followPath(const cv::Mat& center){
     /// TODO
 
     // search for alternative paths
-    /// TODO
+    /// mabe TODO :D
 
     return ret;
 }
@@ -176,28 +176,24 @@ std::vector<cv::Point2i> Vision::_getVectorContainingMostSeeds(const cv::Mat &ce
     return *highest_group;
 }
 
-Vision::Action Vision::_searchPath(const cv::Mat& center){
-    Vision::Action ret = Vision::Action::NO_ACTION;
+std::vector<Transmission> Vision::_searchPath(const cv::Mat& center){
+    std::vector<Transmission> ret;
     bool searchFinished = false;
 
     // nan indicates the begin of a search
     if (std::isnan(this->m_Search_CurrentRotation)){
-        this->m_SearchResults.clear();
         switch (this->m_SearchType){
         case Vision::SEARCH_PATH_TYPE::SEARCH_0_DEGREE:
             this->m_Search_RotationStart = 0.f;
             this->m_Search_RotationEnd = 0.f;
-            this->m_SearchResults.reserve(1);
             break;
         case Vision::SEARCH_PATH_TYPE::SEARCH_180_DEGREE:
             this->m_Search_RotationStart = -90.f;
             this->m_Search_RotationEnd = 90.f;
-            this->m_SearchResults.reserve(180.f / Vision::CAMERA_ROTATION + 1);
             break;
         case Vision::SEARCH_PATH_TYPE::SEARCH_360_DEGREE:
             this->m_Search_RotationStart = -180.f;
             this->m_Search_RotationEnd = 180.f;
-            this->m_SearchResults.reserve(360.f / Vision::CAMERA_ROTATION + 1);
             break;
         default:
             throw std::runtime_error("Error: search type not specified");
@@ -224,21 +220,27 @@ Vision::Action Vision::_searchPath(const cv::Mat& center){
             // but first check results without
 
             // go on moving
-            ret = Vision::Action::MOVE_FORWARD;
+            ret.emplace_back(Transmission::Action::MOVE_FORWARD);
         }
     }
     else{
-        this->m_SearchResults.emplace_back(seedGroup.size());
+        if (this->m_Search_BestSearchResult.first < seedGroup.size()){
+            this->m_Search_BestSearchResult.first = seedGroup.size();
+            this->m_Search_BestSearchResult.second = this->m_CurrentAngle;
+        }
+
         bool startMoving = false;
         if (this->m_Search_CurrentRotation >= this->m_Search_RotationEnd)
             startMoving = true;
         else {
             this->m_Search_CurrentRotation += Vision::CAMERA_ROTATION;
-            ret = Vision::Action::ROTATE_LEFT;
+            ret.emplace_back(Transmission::Action::ROTATE_RIGHT, int16_t(Vision::CAMERA_ROTATION));
         }
 
         if (startMoving) {
             // rotate
+            ret.emplace_back(Transmission::Action::ROTATE_LEFT, int16_t(this->m_CurrentAngle - this->m_Search_BestSearchResult.second));
+            ret.emplace_back(Transmission::Action::MOVE_FORWARD);
             this->m_SearchType = Vision::SEARCH_PATH_TYPE::MOVING;
         }
     }
@@ -252,8 +254,8 @@ Vision::Action Vision::_searchPath(const cv::Mat& center){
     return ret;
 }
 
-Vision::Action Vision::_dogeObject(const cv::Mat& disparity){
-    Vision::Action ret = Vision::Action::NO_ACTION;
+std::vector<Transmission> Vision::_dogeObject(const cv::Mat& disparity){
+    std::vector<Transmission> ret;
 
     const int start_x_value = disparity.cols * (1.f - Vision::DISPARTIY_SEARCH_X_THICKNESS) / 2.f;
     const int max_x_value = disparity.cols - start_x_value;
@@ -262,23 +264,25 @@ Vision::Action Vision::_dogeObject(const cv::Mat& disparity){
     for (int x = start_x_value; x < max_x_value; ++x) {
         if (disparity.at<uchar>(y, x) >= Vision::MIN_DOGE_BRIGHTNESS){
             // doge left or right?
-            if (this->m_LastDoge == Vision::Action::NO_ACTION){
+            if (this->m_LastDoge == Transmission::Action::NO_ACTION){
                 if (x < disparity.cols / 2)
-                    ret = Vision::Action::MOVE_LEFT;
+                    ret.emplace_back(Transmission::Action::MOVE_LEFT);
                 else
-                    ret = Vision::Action::MOVE_RIGHT;
+                    ret.emplace_back(Transmission::Action::MOVE_RIGHT);
             }
             else
-                ret = this->m_LastDoge;
+                ret.emplace_back(this->m_LastDoge);
         }
     }
     }
-    this->m_LastDoge = ret;
+    this->m_LastDoge = Transmission::Action::NO_ACTION;
+    if (ret.size())
+        this->m_LastDoge = ret[0].action;
 
-    if (ret == Vision::Action::NO_ACTION){
+    if (!ret.size()){
         if (this->m_StepCounter < Vision::STEP_COUNTER){
             ++this->m_StepCounter;
-            ret = Vision::Action::MOVE_FORWARD;
+            ret.emplace_back(Transmission::Action::MOVE_FORWARD);
         }
     }
     else {

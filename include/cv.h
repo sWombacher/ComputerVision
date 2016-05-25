@@ -10,21 +10,13 @@
 
 
 struct Vision {
-    enum class Action {
-        NO_ACTION,
-        CLOSE_CONNECTION, DISCONNECTED,
-        INC_SPEED, DEC_SPEED,
-        MOVE_FORWARD, MOVE_LEFT, MOVE_RIGHT, MOVE_BACKWARD,
-        ROTATE_LEFT, ROTATE_RIGHT,
-        HEAD_LEFT, HEAD_RIGHT, HEAD_UP, HEAD_DOWN
-    };
     Vision(){
         // are seeds already setup?
         if (Vision::SEEDS[0] == Vision::SEEDS[1])
             Vision::_SETUP_SEEDS();
     }
 
-    Action getAction(cv::Mat& left, cv::Mat& center, cv::Mat& right);
+    std::vector<Transmission> getAction(cv::Mat& left, cv::Mat& center, cv::Mat& right);
 
 private:
     struct AlternativePath{
@@ -57,18 +49,18 @@ private:
     static void _SETUP_SEEDS();
     static std::array<cv::Point2i, SEED_COUNT> SEEDS;
 
-    Action _followPath(const cv::Mat& center);
+    std::vector<Transmission> _followPath(const cv::Mat& center);
     std::vector<cv::Point2i> _getVectorContainingMostSeeds(const cv::Mat& center);
 
     /// Search path
     enum class SEARCH_PATH_TYPE{ NO_SEARCH, MOVING, SEARCH_0_DEGREE, SEARCH_180_DEGREE, SEARCH_360_DEGREE };
     SEARCH_PATH_TYPE m_SearchType = SEARCH_PATH_TYPE::SEARCH_360_DEGREE;
     float m_Search_CurrentRotation = 1.f / 0.f;
-    float m_Search_RotationStart = -1.f;
-    float m_Search_RotationEnd = -1.f;
+    int m_Search_RotationStart = -1.f;
+    int m_Search_RotationEnd = -1.f;
 
-    std::vector<int> m_SearchResults;
-    Action _searchPath(const cv::Mat& center);
+    std::pair<size_t, float> m_Search_BestSearchResult = {0, -1.f};
+    std::vector<Transmission> _searchPath(const cv::Mat& center);
 
     /// Doge objects
     static constexpr float DISPARITY_SEARCH_HEIGHT = 0.6f;
@@ -76,8 +68,8 @@ private:
     static constexpr uchar MIN_DOGE_BRIGHTNESS = 150;
     static constexpr int STEP_COUNTER = 10;
 
-    Action m_LastDoge = Action::NO_ACTION;
-    Action _dogeObject(const cv::Mat& disparity);
+    Transmission::Action m_LastDoge = Transmission::Action::NO_ACTION;
+    std::vector<Transmission> _dogeObject(const cv::Mat& disparity);
     int m_StepCounter = 0;
 
     cv::Mat dis, left_dis, right_dis;
