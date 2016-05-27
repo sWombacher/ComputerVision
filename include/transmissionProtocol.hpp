@@ -7,14 +7,14 @@ struct Transmission {
         NO_ACTION = 0,
 
         // optional features
-        TELEPORT, MULTIPLE_ACTIONS,
+        TELEPORT,
 
         // actual commands
         MOVE_FORWARD, MOVE_LEFT, MOVE_RIGHT, MOVE_BACKWARD,
         ROTATE_LEFT, ROTATE_RIGHT,
         HEAD_LEFT, HEAD_RIGHT, HEAD_UP, HEAD_DOWN
     };
-    Transmission(Action a, int16_t parameter = -1): action(a), actionParameter(parameter){}
+    Transmission(Action a, int16_t parameter): action(a), actionParameter(parameter){}
 
     Action  action;
     int16_t actionParameter;

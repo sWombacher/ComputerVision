@@ -44,7 +44,7 @@ int main(int, char**)
 #ifdef NETWORK
     try {
         const char* port = "11000";
-        const char* addr = "192.168.2.192";
+        const char* addr = "192.168.2.193";
 
         boost::asio::io_service io_service;
         boost::asio::ip::tcp::socket socket(io_service);
@@ -94,9 +94,11 @@ int main(int, char**)
             receiveImage(right,false);
 
             std::vector<Transmission> actions = vision.getAction(left, center, right);
-            std::string toSend(actions.size() * Transmission::WRITE_SIZE, '\0');
-            for (size_t i = 0; i < actions.size(); i += Transmission::WRITE_SIZE)
-                actions[i].writeData(&toSend[0], i);
+            size_t sendSize = actions.size() * Transmission::WRITE_SIZE + 1;
+            std::string toSend(sendSize, '\0');
+            toSend[0] = char(sendSize);
+            for (size_t i = 0; i < actions.size(); ++i)
+                actions[i].writeData(&toSend[0], i * Transmission::WRITE_SIZE + 1);
             socket.send(boost::asio::buffer(toSend.data(), toSend.size()), 0, ec);
             if (ec)
                 throw std::runtime_error("connection lost");
