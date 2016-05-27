@@ -8,6 +8,8 @@
 #include <vector>
 #include <array>
 
+#include <limits>
+
 
 struct Vision {
     Vision(){
@@ -23,39 +25,42 @@ private:
         cv::Point2f pos;
         float angle;
     };
-
     bool m_OnPath = true;
 
-    std::vector<AlternativePath> m_Alternatives;
-    std::vector<cv::Point> m_VisitedTurnings;
-
-    /// general data
+    /// general data and functions
     static constexpr int CENTER_WIDTH = 256;
     static constexpr int CENTER_HEIGHT = 256;
 
-    static constexpr float CAMERA_ROTATION = 5.f;
+    static constexpr float CAMERA_ROTATION = 10.f;
     static constexpr float MOVEMENTSPEED = 1.f;
 
-    /// follow path
     static constexpr float SEED_START_Y = 0.6f;
     static constexpr int NUM_SEEDS_Y = 8;
     static constexpr int NUM_SEEDS_X = NUM_SEEDS_Y / SEED_START_Y;
     static constexpr int SEED_COUNT = NUM_SEEDS_Y * NUM_SEEDS_X;
-    static constexpr int PATH_LOST_COUNT = 3;
-
-    int m_LostPathCounter = 0;
-    float m_CurrentAngle = 0.f;
 
     static void _SETUP_SEEDS();
     static std::array<cv::Point2i, SEED_COUNT> SEEDS;
+    std::vector<cv::Point2i> _getVectorContainingMostSeeds(const cv::Mat& center);
+
+
+    /// follow path
+    static constexpr int PATH_LOST_COUNT = 3;
+    static constexpr int PATH_LOST_SEED_THRESHOLD = 10;
+
+    int m_FollowPath_PathLostCounter = 0;
+    float m_FollowPath_CurrentAngle = 0.f;
+    Transmission::Action m_FollowPath_LastRotation = Transmission::Action::NO_ACTION;
+
+    std::vector<AlternativePath> m_Alternatives;
+    std::vector<cv::Point> m_VisitedTurnings;
 
     std::vector<Transmission> _followPath(const cv::Mat& center);
-    std::vector<cv::Point2i> _getVectorContainingMostSeeds(const cv::Mat& center);
 
     /// Search path
     enum class SEARCH_PATH_TYPE{ NO_SEARCH, MOVING, SEARCH_0_DEGREE, SEARCH_180_DEGREE, SEARCH_360_DEGREE };
-    SEARCH_PATH_TYPE m_SearchType = SEARCH_PATH_TYPE::SEARCH_360_DEGREE;
-    float m_Search_CurrentRotation = 1.f / 0.f;
+    SEARCH_PATH_TYPE m_SearchType = SEARCH_PATH_TYPE::NO_SEARCH;
+    float m_Search_CurrentRotation = std::numeric_limits<float>::quiet_NaN();
     int m_Search_RotationStart = -1.f;
     int m_Search_RotationEnd = -1.f;
 
@@ -64,13 +69,13 @@ private:
 
     /// Doge objects
     static constexpr float DISPARITY_SEARCH_HEIGHT = 0.6f;
-    static constexpr float DISPARTIY_SEARCH_X_THICKNESS = 1.f / 100.f;
+    static constexpr float DISPARTIY_SEARCH_X_THICKNESS = 10.f / 100.f;
     static constexpr uchar MIN_DOGE_BRIGHTNESS = 150;
     static constexpr int STEP_COUNTER = 10;
 
-    Transmission::Action m_LastDoge = Transmission::Action::NO_ACTION;
+    int m_Doge_StepCounter = 0;
+    Transmission::Action m_Doge_LastDoge = Transmission::Action::NO_ACTION;
     std::vector<Transmission> _dogeObject(const cv::Mat& disparity);
-    int m_StepCounter = 0;
 
     cv::Mat dis, left_dis, right_dis;
 };
