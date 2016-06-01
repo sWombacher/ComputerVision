@@ -44,7 +44,8 @@ int main(int, char**)
 #ifdef NETWORK
     try {
         const char* port = "11000";
-        const char* addr = "192.168.2.193";
+        //const char* addr = "192.168.2.193";
+        const char* addr = "141.100.5";
 
         boost::asio::io_service io_service;
         boost::asio::ip::tcp::socket socket(io_service);
