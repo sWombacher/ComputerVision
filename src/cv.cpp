@@ -106,29 +106,29 @@ std::vector<Transmission> Vision::_followPath(const cv::Mat& center){
     else
         this->m_FollowPath_PathLostCounter = 0;
 
-#ifdef DEBUG
-    #ifdef ENABLE_IMAGE_SAVE
-        if (getchar() == 'p'){
-            static int counter = 0;
-            std::string path("/home/bloodyangel/computerVision/");
-            path += std::to_string(counter++) + ".png";
-            cv::imwrite(path.c_str(), center_cpy);
-        }
-    #endif
+#if defined(DEBUG) && defined(ENABLE_IMAGE_SAVE)
+    if (getchar() == 'p') {
+      static int counter = 0;
+      std::string path("/home/bloodyangel/computerVision/");
+      path += std::to_string(counter++) + ".png";
+      cv::imwrite(path.c_str(), center_cpy);
+    }
 #endif
 
     // extract path directions
-    int current_y = seedGroup[0].y;
-    std::vector<cv::Point2i> upperLine;
-    for (const auto& e : seedGroup){
-        if (e.y == current_y)
-            upperLine.push_back(e);
-        else
-            break;
+    std::vector<cv::Point2i> lowerLine;
+    {
+        int current_y = seedGroup[seedGroup.size() - 1].y;
+        for (const auto& e : boost::adaptors::reverse(seedGroup)){
+            if (e.y == current_y)
+                lowerLine.push_back(e);
+            else
+                break;
+        }
     }
 
     // simpified approach, just take mean of upper line
-    float relativeMovement_x = (upperLine[0].x + upperLine[upperLine.size() - 1].x) / 2 - (Vision::CENTER_WIDTH / 2);
+    float relativeMovement_x = (lowerLine[0].x + lowerLine[lowerLine.size() - 1].x) / 2 - (Vision::CENTER_WIDTH / 2);
     if (std::abs(relativeMovement_x) > 20.f){
         if (relativeMovement_x < 0.f && this->m_FollowPath_LastRotation != Transmission::Action::ROTATE_RIGHT)
             ret.emplace_back(Transmission::Action::ROTATE_LEFT, int16_t(Vision::CAMERA_ROTATION / 2));
@@ -142,6 +142,9 @@ std::vector<Transmission> Vision::_followPath(const cv::Mat& center){
 
     // search for alternative paths
     /// mabe TODO :D
+
+    // simplified,
+    // search for alternernative paths
     return ret;
 }
 
@@ -209,7 +212,6 @@ std::vector<cv::Point2i> Vision::_getVectorContainingMostSeeds(const cv::Mat &ce
     cv::imshow("Seeded path", center_cpy);
     cv::waitKey(1);
 #endif
-
     return *highest_group;
 }
 
