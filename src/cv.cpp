@@ -41,7 +41,7 @@ std::vector<Transmission> Vision::getAction(cv::Mat &left, cv::Mat& center, cv::
 
     cv::imshow("Disparity", disparity);
     cv::imshow("Center", center);
-    cv::waitKey(1);
+    cv::waitKey(10);
     std::vector<Transmission> actions;
 
     // object in front of camera?
@@ -95,8 +95,8 @@ std::vector<Transmission> Vision::_followPath(const cv::Mat& center){
 
     // path following uses a seeded approach
     // the area with the most seeds will be set as path
-    std::vector<cv::Point2i> seedGroup = this->_getVectorContainingMostSeeds(center);
-    if (seedGroup.size() < Vision::PATH_LOST_SEED_THRESHOLD){
+    SeedVector seedGroup = this->_getVectorContainingMostSeeds(center);
+    if (seedGroup.PIXEL_SIZE < Vision::PATH_LOST_SEED_THRESHOLD){
         ++this->m_FollowPath_PathLostCounter;
         if (this->m_FollowPath_PathLostCounter == Vision::PATH_LOST_COUNT){
             this->m_OnPath = false;
@@ -118,8 +118,8 @@ std::vector<Transmission> Vision::_followPath(const cv::Mat& center){
     // extract path directions
     std::vector<cv::Point2i> lowerLine;
     {
-        int current_y = seedGroup[seedGroup.size() - 1].y;
-        for (const auto& e : boost::adaptors::reverse(seedGroup)){
+        int current_y = seedGroup.vec[seedGroup.vec.size() - 1].y;
+        for (const auto& e : boost::adaptors::reverse(seedGroup.vec)){
             if (e.y == current_y)
                 lowerLine.push_back(e);
             else
@@ -148,7 +148,7 @@ std::vector<Transmission> Vision::_followPath(const cv::Mat& center){
     return ret;
 }
 
-std::vector<cv::Point2i> Vision::_getVectorContainingMostSeeds(const cv::Mat &center) {
+Vision::SeedVector Vision::_getVectorContainingMostSeeds(const cv::Mat &center) {
     cv::Mat center_cpy = center.clone();
 
     // cap floodfill by using a straight line
@@ -172,13 +172,13 @@ std::vector<cv::Point2i> Vision::_getVectorContainingMostSeeds(const cv::Mat &ce
     };
 
     // find groups
-    std::vector<std::vector<cv::Point2i>> seedGroups;
+    std::vector<SeedVector> seedGroups;
     for (size_t i = 0; i < Vision::SEEDS.size(); ++i){
         if (usedSeeds[i])
             continue;
 
         const cv::Point2i& pos = Vision::SEEDS[i];
-        cv::floodFill(center_cpy, pos, {double(col)}, nullptr, 0, 0);
+        int pixelCount = cv::floodFill(center_cpy, pos, {double(col)}, nullptr, 0, 0);
 
         std::vector<cv::Point2i> seedGroup;
         for (size_t k = 0; k < Vision::SEEDS.size(); ++k){
@@ -188,15 +188,15 @@ std::vector<cv::Point2i> Vision::_getVectorContainingMostSeeds(const cv::Mat &ce
                 usedSeeds[k] = true;
             }
         }
-        seedGroups.emplace_back(std::move(seedGroup));
+        seedGroups.push_back({std::move(seedGroup), pixelCount});
         center_cpy.at<uchar>(pos) = center.at<uchar>(pos);
     }
 
     // find goup with the most seeds
     int highest = -1;
-    std::vector<cv::Point2i>* highest_group = nullptr;
+    SeedVector* highest_group = nullptr;
     for (auto& e : seedGroups){
-        int size = e.size();
+        int size = e.PIXEL_SIZE;
         if (highest < size){
             highest = size;
             highest_group = &e;
@@ -206,7 +206,7 @@ std::vector<cv::Point2i> Vision::_getVectorContainingMostSeeds(const cv::Mat &ce
 #ifdef DEBUG
     center_cpy = center.clone();
     cv::line(center_cpy, {0, seed_start_height}, {center_cpy.cols, seed_start_height}, {0}, 1);
-    cv::floodFill(center_cpy, highest_group->operator[](0), {255.0}, nullptr, 0, 0);
+    cv::floodFill(center_cpy, highest_group->vec[0], {255.0}, nullptr, 0, 0);
     for (auto& e : Vision::SEEDS)
         cv::circle(center_cpy, e, 2, {0}, 1);
     cv::imshow("Seeded path", center_cpy);
@@ -248,7 +248,7 @@ std::vector<Transmission> Vision::_searchPath(const cv::Mat& center){
 
     if (this->m_SearchType == Vision::SEARCH_PATH_TYPE::MOVING){
         // check if VrAibo is on line
-        for (const auto& e : boost::adaptors::reverse(seedGroup)){
+        for (const auto& e : boost::adaptors::reverse(seedGroup.vec)){
             // if the bottom line is filled set VrAibo on line
             // last seed is on bottom line -> y value of all bottom seeds are equal
             if (e.y == Vision::SEEDS[SEED_COUNT - 1].y){
@@ -267,8 +267,8 @@ std::vector<Transmission> Vision::_searchPath(const cv::Mat& center){
         }
     }
     else{
-        if (this->m_Search_BestSearchResult.first < seedGroup.size()){
-            this->m_Search_BestSearchResult.first = seedGroup.size();
+        if (this->m_Search_BestSearchResult.first < seedGroup.PIXEL_SIZE){
+            this->m_Search_BestSearchResult.first = seedGroup.PIXEL_SIZE;
             this->m_Search_BestSearchResult.second = this->m_Search_CurrentRotation;
         }
 

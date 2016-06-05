@@ -4,11 +4,11 @@
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/ximgproc.hpp>
-#include "transmissionProtocol.hpp"
 #include <vector>
+#include <limits>
 #include <array>
 
-#include <limits>
+#include "transmissionProtocol.hpp"
 
 
 struct Vision {
@@ -21,6 +21,10 @@ struct Vision {
     std::vector<Transmission> getAction(cv::Mat& left, cv::Mat& center, cv::Mat& right);
 
 private:
+    struct SeedVector{
+        std::vector<cv::Point2i> vec;
+        int PIXEL_SIZE;
+    };
     struct AlternativePath{
         cv::Point2f pos;
         float angle;
@@ -41,7 +45,7 @@ private:
 
     static void _SETUP_SEEDS();
     static std::array<cv::Point2i, SEED_COUNT> SEEDS;
-    std::vector<cv::Point2i> _getVectorContainingMostSeeds(const cv::Mat& center);
+    SeedVector _getVectorContainingMostSeeds(const cv::Mat& center);
 
 
     /// follow path
