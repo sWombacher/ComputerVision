@@ -1,6 +1,7 @@
 #include "cv.h"
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/math/constants/constants.hpp>
+#include <limits>
 
 #define DEBUG
 //#define ENABLE_IMAGE_SAVE
@@ -67,17 +68,17 @@ std::vector<Transmission> Vision::getAction(cv::Mat &left, cv::Mat& center, cv::
 
 void Vision::_SETUP_SEEDS(){
     constexpr int start_x = 0;
-    constexpr int start_y = Vision::CENTER_HEIGHT * Vision::SEED_START_Y;
+    constexpr int start_y = Vision::IMAGES_HEIGHT * Vision::SEED_START_Y;
 
-    constexpr float skip_y = float(Vision::CENTER_HEIGHT - start_y) / float(Vision::NUM_SEEDS_Y);
-    constexpr float skip_x = float(Vision::CENTER_WIDTH) / float(Vision::NUM_SEEDS_X);
+    constexpr float skip_y = float(Vision::IMAGES_HEIGHT - start_y) / float(Vision::NUM_SEEDS_Y);
+    constexpr float skip_x = float(Vision::IMAGES_WIDTH) / float(Vision::NUM_SEEDS_X);
 
     constexpr float start_y_offset = skip_y / 2.f;
     constexpr float start_x_offset = skip_y / 2.f;
 
     int seed_iter = 0;
-    for (float y = start_y + start_y_offset; y < Vision::CENTER_HEIGHT; y += skip_y){
-    for (float x = start_x + start_x_offset; x < Vision::CENTER_WIDTH ; x += skip_x){
+    for (float y = start_y + start_y_offset; y < Vision::IMAGES_HEIGHT; y += skip_y){
+    for (float x = start_x + start_x_offset; x < Vision::IMAGES_WIDTH ; x += skip_x){
         Vision::SEEDS[seed_iter++] = {int(x), int(y)};
     }
     }
@@ -89,15 +90,22 @@ std::vector<Transmission> Vision::_followPath(const cv::Mat& center){
     // path following uses a seeded approach
     // the area with the most seeds will be set as path
     SeedVector seedGroup = this->_getVectorContainingMostSeeds(center);
-    if (seedGroup.PIXEL_SIZE < Vision::PATH_LOST_SEED_THRESHOLD){
+
+    auto pathLost = [this, &ret]() mutable {
         ++this->m_FollowPath_PathLostCounter;
         if (this->m_FollowPath_PathLostCounter == Vision::PATH_LOST_COUNT){
             this->m_OnPath = false;
+            this->m_FollowPath_PathLostCounter = 0;
             this->m_SearchType = Vision::SEARCH_PATH_TYPE::SEARCH_360_DEGREE;
         }
+        ret.emplace_back(Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED));
+    };
+
+    if (seedGroup.PIXEL_SIZE < Vision::PATH_LOST_SEED_THRESHOLD){
+        debug(std::cout << "Path lost seedgroup to small" << std::endl);
+        pathLost();
+        return ret;
     }
-    else
-        this->m_FollowPath_PathLostCounter = 0;
 
 #if defined(DEBUG) && defined(ENABLE_IMAGE_SAVE)
     if (getchar() == 'p') {
@@ -108,20 +116,55 @@ std::vector<Transmission> Vision::_followPath(const cv::Mat& center){
     }
 #endif
 
-    // extract path directions
-    std::vector<cv::Point2i> lowerLine;
+    // create scan line
+    std::vector<int> pathMidPoints;
     {
-        int current_y = seedGroup.vec[seedGroup.vec.size() - 1].y;
-        for (const auto& e : boost::adaptors::reverse(seedGroup.vec)){
-            if (e.y == current_y)
-                lowerLine.push_back(e);
-            else
-                break;
+        for (int i = 0, oldPoint = std::numeric_limits<int>::min(); i < seedGroup.floodedImage.cols; ++i){
+            if (seedGroup.floodedImage.at<uchar>(Vision::FOLLOW_PATH_SCANLINE_HEIGHT, i) == 0){
+                // path point found
+                if (oldPoint != i - 1)
+                    pathMidPoints.push_back(i); // new path found
+                oldPoint = i;
+            }
+            else{
+                if (oldPoint == i - 1 && pathMidPoints.size()){
+                    // adjust point to be actual in the middle
+                    pathMidPoints[pathMidPoints.size() - 1] += i-1;
+                    pathMidPoints[pathMidPoints.size() - 1] /= 2;
+                }
+            }
+        }
+        // check last point on path, which hasn't been checked
+        if (seedGroup.floodedImage.at<uchar>(Vision::FOLLOW_PATH_SCANLINE_HEIGHT, seedGroup.floodedImage.cols - 1) == 0){
+            pathMidPoints[pathMidPoints.size() - 1] += seedGroup.floodedImage.cols - 1;
+            pathMidPoints[pathMidPoints.size() - 1] /= 2;
         }
     }
 
-    // simpified approach, just take mean of upper line
-    float relativeMovement_x = (lowerLine[0].x + lowerLine[lowerLine.size() - 1].x) / 2 - (Vision::CENTER_WIDTH / 2);
+#ifdef DEBUG
+    cv::Mat& tmp = seedGroup.floodedImage;
+    cv::line(tmp, {0, Vision::FOLLOW_PATH_SCANLINE_HEIGHT}, {tmp.cols - 1, Vision::FOLLOW_PATH_SCANLINE_HEIGHT}, {127}, 1);
+    cv::imshow("Scanline", tmp);
+    cv::waitKey(10);
+#endif
+
+    if (pathMidPoints.size()){
+        if (pathMidPoints.size() > 1){
+            // multiple paths found
+            std::cout << "Multi paths" << std::endl;
+        }
+        else{
+            // only one path found
+        }
+    }
+    else{
+        // no path found
+        debug(std::cout << "Path lost on scanline" << std::endl);
+        pathLost();
+        return ret;
+    }
+    float relativeMovement_x = pathMidPoints[0] - seedGroup.floodedImage.cols / 2;
+
     if (std::abs(relativeMovement_x) > 20.f){
         if (relativeMovement_x < 0.f && this->m_FollowPath_LastRotation != Transmission::Action::ROTATE_RIGHT)
             ret.emplace_back(Transmission::Action::ROTATE_LEFT, int16_t(Vision::CAMERA_ROTATION / 2));
@@ -138,6 +181,9 @@ std::vector<Transmission> Vision::_followPath(const cv::Mat& center){
 
     // simplified,
     // search for alternernative paths
+
+    // path found
+    this->m_FollowPath_PathLostCounter = 0;
     return ret;
 }
 
@@ -145,7 +191,7 @@ Vision::SeedVector Vision::_getVectorContainingMostSeeds(const cv::Mat &center) 
     cv::Mat center_cpy = center.clone();
 
     // cap floodfill by using a straight line
-    constexpr int seed_start_height = Vision::SEED_START_Y * Vision::CENTER_HEIGHT;
+    constexpr int seed_start_height = Vision::SEED_START_Y * Vision::IMAGES_HEIGHT;
     cv::line(center_cpy, {0, seed_start_height}, {center_cpy.cols, seed_start_height}, {0}, 1);
 
     std::array<bool, Vision::SEED_COUNT> usedSeeds;
@@ -165,8 +211,8 @@ Vision::SeedVector Vision::_getVectorContainingMostSeeds(const cv::Mat &center) 
     };
 
     // find groups
-    std::vector<SeedVector> seedGroups;
-    for (size_t i = 0; i < Vision::SEEDS.size(); ++i){
+    SeedVector bestGroup;
+    for (size_t i = 0, currentHighestPIxelCount = 0; i < Vision::SEEDS.size(); ++i){
         if (usedSeeds[i])
             continue;
 
@@ -181,31 +227,73 @@ Vision::SeedVector Vision::_getVectorContainingMostSeeds(const cv::Mat &center) 
                 usedSeeds[k] = true;
             }
         }
-        seedGroups.push_back({std::move(seedGroup), pixelCount});
-        center_cpy.at<uchar>(pos) = center.at<uchar>(pos);
+        if (currentHighestPIxelCount < size_t(pixelCount)) {
+            currentHighestPIxelCount = pixelCount;
+            bestGroup.vec = std::move(seedGroup);
+            bestGroup.PIXEL_SIZE = pixelCount;
+        }
+        //center_cpy.at<uchar>(pos) = col + 1;
+        cv::floodFill(center_cpy, pos, {double(col+1)}, nullptr, 0, 0);
     }
 
-    // find goup with the most seeds
-    int highest = -1;
-    SeedVector* highest_group = nullptr;
-    for (auto& e : seedGroups){
-        int size = e.PIXEL_SIZE;
-        if (highest < size){
-            highest = size;
-            highest_group = &e;
-        }
-    }
+    cv::Mat& output = bestGroup.floodedImage;
+    output = center.clone();
+    cv::line(output, {0, seed_start_height}, {center_cpy.cols, seed_start_height}, {0}, 1);
+    cv::floodFill(output, bestGroup.vec[0], {0.0}, nullptr, 0, 0);
+    cv::threshold(output, output, 0, 255, cv::THRESH_BINARY);
 
 #ifdef DEBUG
-    center_cpy = center.clone();
-    cv::line(center_cpy, {0, seed_start_height}, {center_cpy.cols, seed_start_height}, {0}, 1);
-    cv::floodFill(center_cpy, highest_group->vec[0], {255.0}, nullptr, 0, 0);
+/*
+
+    using namespace cv;
+    using namespace std;
+    cv::subtract(cv::Scalar::all(255), output, center_cpy);
+    cv::imshow("why?", center_cpy);
+    std::vector<std::vector<cv::Point> > contours;
+    std::vector<cv::Vec4i> hierarchy;
+
+
+    /// Find contours
+      static RNG rng(12345);
+      findContours( center_cpy, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_TC89_L1, Point(0, 0) );
+
+      /// Approximate contours to polygons + get bounding rects and circles
+      vector<vector<Point> > contours_poly( contours.size() );
+      vector<Rect> boundRect( contours.size() );
+
+      for( int i = 0; i < contours.size(); i++ )
+         { approxPolyDP( Mat(contours[i]), contours_poly[i], 3, true );
+           boundRect[i] = boundingRect( Mat(contours_poly[i]) );
+           //minEnclosingCircle( (Mat)contours_poly[i], center1[i], radius[i] );
+         }
+
+
+      /// Draw polygonal contour + bonding rects + circles
+      Mat drawing = Mat::zeros( center_cpy.size(), CV_8UC3 );
+      //for( int i = 0; i< contours.size(); i++ )
+      int i = 0;
+         {
+           Scalar color = Scalar( rng.uniform(0, 255), rng.uniform(0,255), rng.uniform(0,255) );
+           drawContours( drawing, contours_poly, i, color, 1, 8, vector<Vec4i>(), 0, Point() );
+           rectangle( drawing, boundRect[i].tl(), boundRect[i].br(), color, 2, 8, 0 );
+           //circle( drawing, center1[i], (int)radius[i], color, 2, 8, 0 );
+         }
+    cv::imshow("bamlee", drawing);
+*/
+
+    center_cpy = output.clone();
+    cv::circle(center_cpy,bestGroup.vec[0], 3, {127});
+    cv::waitKey(10);
+
     for (auto& e : Vision::SEEDS)
         cv::circle(center_cpy, e, 2, {0}, 1);
+
+    cv::imshow("Flooded", output);
     cv::imshow("Seeded path", center_cpy);
-    cv::waitKey(1);
+    cv::waitKey(10);
 #endif
-    return *highest_group;
+
+    return bestGroup;
 }
 
 std::vector<Transmission> Vision::_searchPath(const cv::Mat& center){
@@ -234,7 +322,7 @@ std::vector<Transmission> Vision::_searchPath(const cv::Mat& center){
         ret.emplace_back(Transmission::Action::ROTATE_RIGHT, this->m_Search_RotationStart);
         this->m_Search_CurrentRotation = this->m_Search_RotationStart;
         this->m_Search_BestSearchResult.first = 0;
-        this->m_Doge_StepCounter = 0;
+        this->m_Doge_StepDistance = 0;
         return ret;
     }
     auto seedGroup = this->_getVectorContainingMostSeeds(center);
@@ -314,12 +402,12 @@ std::vector<Transmission> Vision::_dogeObject(const cv::Mat& disparity){
             // doge left or right?
             if (this->m_Doge_LastDoge == Transmission::Action::NO_ACTION){
                 if (x < disparity.cols / 2)
-                    ret.emplace_back(Transmission::Action::MOVE_LEFT, 1);
+                    ret.emplace_back(Transmission::Action::MOVE_LEFT, int16_t(Vision::MOVEMENTSPEED));
                 else
-                    ret.emplace_back(Transmission::Action::MOVE_RIGHT, 1);
+                    ret.emplace_back(Transmission::Action::MOVE_RIGHT, int16_t(Vision::MOVEMENTSPEED));
             }
             else
-                ret.emplace_back(this->m_Doge_LastDoge, 1);
+                ret.emplace_back(this->m_Doge_LastDoge, int16_t(Vision::MOVEMENTSPEED));
             break;
         }
     }
@@ -328,14 +416,14 @@ std::vector<Transmission> Vision::_dogeObject(const cv::Mat& disparity){
 
     if (ret.size()) {
         this->m_Doge_LastDoge = ret[0].action;
-        this->m_Doge_StepCounter = 0;
+        this->m_Doge_StepDistance = 0;
         this->m_OnPath = false;
         if (this->m_SearchType == Vision::SEARCH_PATH_TYPE::MOVING)
             this->m_SearchType =  Vision::SEARCH_PATH_TYPE::SEARCH_180_DEGREE;
     }
     else if (this->m_Doge_LastDoge != Transmission::Action::NO_ACTION){
-        if (this->m_Doge_StepCounter < Vision::STEP_COUNTER){
-            this->m_Doge_StepCounter++;
+        if (this->m_Doge_StepDistance < Vision::STEP_DISTANCE){
+            this->m_Doge_StepDistance += Vision::MOVEMENTSPEED;
             ret.emplace_back(Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED));
         }
         else{
