@@ -45,6 +45,7 @@ private:
 
     static void _SETUP_SEEDS();
     static std::array<cv::Point2i, SEED_COUNT> SEEDS;
+    cv::Mat dis, left_dis, right_dis;
     SeedVector _getVectorContainingMostSeeds(const cv::Mat& center);
 
 
@@ -72,16 +73,16 @@ private:
     std::vector<Transmission> _searchPath(const cv::Mat& center);
 
     /// Doge objects
-    static constexpr float DISPARITY_SEARCH_HEIGHT = 0.6f;
     static constexpr float DISPARTIY_SEARCH_X_THICKNESS = 10.f / 100.f;
-    static constexpr uchar MIN_DOGE_BRIGHTNESS = 150;
-    static constexpr int STEP_COUNTER = 10;
+    static constexpr float DISPARITY_SEARCH_HEIGHT = 0.5f;
+    static constexpr uchar MIN_DOGE_BRIGHTNESS = 220;
+    static constexpr int STEP_COUNTER = 6;
+    static constexpr int DISPARITY_OFFSET_X = 30; /// TODO set correct offset_x
 
     int m_Doge_StepCounter = 0;
     Transmission::Action m_Doge_LastDoge = Transmission::Action::NO_ACTION;
     std::vector<Transmission> _dogeObject(const cv::Mat& disparity);
-
-    cv::Mat dis, left_dis, right_dis;
+    cv::Mat m_lastDisparityMap;
 };
 
 #endif

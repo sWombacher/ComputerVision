@@ -26,26 +26,19 @@
 
 int main(int, char**)
 {
-    constexpr int CENTER_SIZE_X = 256;
-    constexpr int CENTER_SIZE_Y = 256;
-    constexpr int CENTER_BYTE_SIZE = CENTER_SIZE_X * CENTER_SIZE_Y * 3;
-
-    constexpr int DISPARITY_SIZE_X = 192;
-    constexpr int DISPARITY_SIZE_Y = 256;
-    constexpr int DISPAIRTY_BYTE_SIZE = DISPARITY_SIZE_X * DISPARITY_SIZE_Y;
+    constexpr int IMAGE_SIZE_X = 256;
+    constexpr int IMAGE_SIZE_Y = 256;
+    constexpr int IMAGE_BYTE_SIZE = IMAGE_SIZE_X * IMAGE_SIZE_Y;
 
     using namespace std::chrono_literals;
-    cv::Mat center(CENTER_SIZE_Y, CENTER_SIZE_X, CV_8UC3);
-    cv::Mat disparity(DISPARITY_SIZE_Y, DISPARITY_SIZE_X, CV_8UC1);
-    cv::namedWindow("Center");
-    cv::namedWindow("Disparity");
+    cv::Mat center(IMAGE_SIZE_Y, IMAGE_SIZE_X, CV_8UC1);
     Vision vision;
 
 #ifdef NETWORK
     try {
         const char* port = "11000";
-        //const char* addr = "192.168.2.193";
-        const char* addr = "141.100.5";
+        const char* addr = "192.168.2.193";
+        //const char* addr = "141.100.5";
 
         boost::asio::io_service io_service;
         boost::asio::ip::tcp::socket socket(io_service);
@@ -61,10 +54,10 @@ int main(int, char**)
         if (ec)
             throw std::runtime_error("Error: Socket couldn't be opend");
 
-        char* data = new char[(CENTER_BYTE_SIZE > DISPAIRTY_BYTE_SIZE ? CENTER_BYTE_SIZE : DISPAIRTY_BYTE_SIZE)];
+        char* data = new char[IMAGE_BYTE_SIZE];
 
         auto receiveImage = [=, &data, &socket, &ec](cv::Mat& img, const bool gray){
-            const int reciveSize = gray ? DISPAIRTY_BYTE_SIZE : CENTER_BYTE_SIZE;
+            const int reciveSize = img.cols * img.rows * (gray ? 1 : 3);
             int count = 0;
             do {
                 count += socket.receive(boost::asio::buffer(&data[count], reciveSize - count), 0, ec);
@@ -86,13 +79,12 @@ int main(int, char**)
             }
         };
 
-        cv::Mat left (256, 256, CV_8UC3);
-        cv::Mat right(256, 256, CV_8UC3);
+        cv::Mat left (256, 256, CV_8UC1);
+        cv::Mat right(256, 256, CV_8UC1);
         while (socket.is_open()) {
-            receiveImage(center, false);
-            receiveImage(disparity, true);
-            receiveImage(left ,false);
-            receiveImage(right,false);
+            receiveImage(center, true);
+            receiveImage(left , true);
+            receiveImage(right, true);
 
             std::vector<Transmission> actions = vision.getAction(left, center, right);
             size_t sendSize = actions.size() * Transmission::WRITE_SIZE + 1;

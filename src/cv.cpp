@@ -23,25 +23,18 @@
 std::array<cv::Point2i, Vision::SEED_COUNT> Vision::SEEDS = {};
 
 std::vector<Transmission> Vision::getAction(cv::Mat &left, cv::Mat& center, cv::Mat &right) {
-    cv::Mat center_gray, disparity;
-    cv::cvtColor(center, center_gray, CV_RGB2GRAY);
-    IMSHOW_D(center_gray);
+    cv::Mat disparity;
+    IMSHOW_D(center);
 
-    cv::Mat right_gray, left_gray;
-    cv::cvtColor(right, right_gray, CV_BGR2GRAY);
-    cv::cvtColor(left, left_gray, CV_BGR2GRAY);
     auto left_matcher = cv::StereoBM::create();
     auto right_matcher = cv::ximgproc::createRightMatcher(left_matcher);
     auto wls_filter = cv::ximgproc::createDisparityWLSFilter(left_matcher);
 
-    left_matcher->compute(left_gray, right_gray, left_dis);
-    right_matcher->compute(right_gray, left_gray, right_dis);
+    left_matcher->compute(left, right, left_dis);
+    right_matcher->compute(right, left, right_dis);
     wls_filter->filter(left_dis, center, dis, right_dis);
     cv::normalize(dis, disparity, 0, 255, CV_MINMAX, CV_8UC1);
 
-    cv::imshow("Disparity", disparity);
-    cv::imshow("Center", center);
-    cv::waitKey(10);
     std::vector<Transmission> actions;
 
     // object in front of camera?
@@ -56,13 +49,13 @@ std::vector<Transmission> Vision::getAction(cv::Mat &left, cv::Mat& center, cv::
 
     // go back on track
     if (!this->m_OnPath){
-        actions = this->_searchPath(center_gray);
+        actions = this->_searchPath(center);
         if (actions.size())
             return actions;
     }
 
     // follow current path
-    actions = this->_followPath(center_gray);
+    actions = this->_followPath(center);
     if (actions.size())
         return actions;
 
@@ -301,8 +294,19 @@ std::vector<Transmission> Vision::_searchPath(const cv::Mat& center){
 
 std::vector<Transmission> Vision::_dogeObject(const cv::Mat& disparity){
     std::vector<Transmission> ret;
-    const int start_x_value = disparity.cols * (1.f - Vision::DISPARTIY_SEARCH_X_THICKNESS) / 2.f;
-    const int max_x_value = disparity.cols - start_x_value;
+    const int start_y_value = disparity.rows * Vision::DISPARITY_SEARCH_HEIGHT / 2.f;
+    int start_x_value = disparity.cols * (1.f - Vision::DISPARTIY_SEARCH_X_THICKNESS) / 2.f;
+    const int max_x_value = disparity.cols - start_x_value + Vision::DISPARITY_OFFSET_X;
+    start_x_value += Vision::DISPARITY_OFFSET_X;
+
+#ifdef DEBUG
+    cv::Mat tmp = disparity.clone();
+    cv::rectangle(tmp, {start_x_value, start_y_value},
+                       {max_x_value, int(disparity.rows * Vision::DISPARITY_SEARCH_HEIGHT)},
+                       {255});
+    cv::imshow("Search rect", tmp);
+    cv::waitKey(10);
+#endif
 
     for (int y = 0; !ret.size() && y < disparity.rows * Vision::DISPARITY_SEARCH_HEIGHT; ++y){
     for (int x = start_x_value; x < max_x_value; ++x) {
