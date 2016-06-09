@@ -54,10 +54,14 @@ int main(int, char**)
         if (ec)
             throw std::runtime_error("Error: Socket couldn't be opend");
 
-        char* data = new char[IMAGE_BYTE_SIZE];
 
-        auto receiveImage = [=, &data, &socket, &ec](cv::Mat& img, const bool gray){
-            const int reciveSize = img.cols * img.rows * (gray ? 1 : 3);
+        cv::Mat left (256, 256, CV_8UC1);
+        cv::Mat right(256, 256, CV_8UC1);
+        int16_t pos_x, pos_y, rot;
+
+        char* data = new char[IMAGE_BYTE_SIZE];
+        auto receiveImage = [=, &data, &socket, &ec](cv::Mat& img){
+            constexpr int reciveSize = IMAGE_SIZE_X * IMAGE_SIZE_Y;
             int count = 0;
             do {
                 count += socket.receive(boost::asio::buffer(&data[count], reciveSize - count), 0, ec);
@@ -68,25 +72,33 @@ int main(int, char**)
             int dataIter = 0;
             for (int y = 0; y < img.rows; ++y){
             for (int x = 0; x < img.cols; ++x){
-                if (gray)
-                    img.at<uchar>(y, x) = data[dataIter++];
-                else{
-                    img.at<cv::Vec3b>(y, x)[0] = data[dataIter++];
-                    img.at<cv::Vec3b>(y, x)[1] = data[dataIter++];
-                    img.at<cv::Vec3b>(y, x)[2] = data[dataIter++];
-                }
+                img.at<uchar>(y, x) = data[dataIter++];
             }
             }
         };
+        auto receivePosition = [&pos_x, &pos_y, &rot, &data, &socket, &ec](){
+            constexpr int reciveSize = sizeof(pos_x) + sizeof(pos_y) + sizeof(rot);
+            int count = 0;
+            do {
+                count += socket.receive(boost::asio::buffer(&data[count], reciveSize - count), 0, ec);
+                if (ec)
+                    throw std::runtime_error("connection lost");
+            } while (count != reciveSize);
+            pos_x = int16_t(data[1] << 8) + data[0];
+            pos_y = int16_t(data[3] << 8) + data[2];
+            rot   = int16_t(data[5] << 8) + data[4];
+        };
 
-        cv::Mat left (256, 256, CV_8UC1);
-        cv::Mat right(256, 256, CV_8UC1);
         while (socket.is_open()) {
-            receiveImage(center, true);
-            receiveImage(left , true);
-            receiveImage(right, true);
+            // receive aibo position
+            receivePosition();
 
-            std::vector<Transmission> actions = vision.getAction(left, center, right);
+            // receive images
+            receiveImage(center);
+            receiveImage(left);
+            receiveImage(right);
+
+            std::vector<Transmission> actions = vision.getAction(pos_x, pos_y, rot, left, center, right);
             size_t sendSize = actions.size() * Transmission::WRITE_SIZE + 1;
             std::string toSend(sendSize, '\0');
             toSend[0] = char(sendSize);
