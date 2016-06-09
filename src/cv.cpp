@@ -49,7 +49,7 @@ std::vector<Transmission> Vision::getAction(int16_t pos_x, int16_t pos_y, int16_
     if (this->m_SearchType == Vision::SEARCH_PATH_TYPE::NO_SEARCH ||
         this->m_SearchType == Vision::SEARCH_PATH_TYPE::MOVING)
     {
-        actions = this->_dogeObject(disparity);
+        actions = this->_dodgeObject(disparity);
         if (actions.size())
             return actions;
     }
@@ -106,7 +106,7 @@ std::vector<Transmission> Vision::_followPath(const SeedVector &seedGroup){
             this->m_FollowPath_PathLostCounter = 0;
             this->m_SearchType = Vision::SEARCH_PATH_TYPE::SEARCH_360_DEGREE;
         }
-        ret.emplace_back(Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED));
+        ret.emplace_back(Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED * 2));
     };
 
     if (seedGroup.SIZE < Vision::PATH_LOST_SEED_THRESHOLD){
@@ -332,14 +332,16 @@ std::vector<Transmission> Vision::_searchPath(const SeedVector& seedGroup){
             throw std::runtime_error("Error: search type not specified");
             break;
         }
-        ret.emplace_back(Transmission::Action::ROTATE_RIGHT, this->m_Search_RotationStart);
         // scale adjustment
         this->m_Search_RotationStart *= Vision::CAMERA_ROTATION_SCALE;
         this->m_Search_RotationEnd *= Vision::CAMERA_ROTATION_SCALE;
 
         this->m_Search_CurrentRotation = this->m_Search_RotationStart;
         this->m_Search_BestSearchResult.first = 0;
-        this->m_Doge_StepDistance = 0;
+        this->m_Search_OldSeedSize = -1;
+        this->m_Dodge_StepDistance = 0;
+
+        ret.emplace_back(Transmission::Action::ROTATE_RIGHT, this->m_Search_RotationStart);
         return ret;
     }
 
@@ -364,8 +366,18 @@ std::vector<Transmission> Vision::_searchPath(const SeedVector& seedGroup){
         }
     }
     else{
-        //std::cout << "Pixelsize: " << seedGroup.PIXEL_SIZE << '\r';
-        //getchar();
+        if (seedGroup.SIZE > Vision::FOUND_AREA_IS_LIKLY_PATH_THRESHOLD){
+            if (this->m_Search_CurrentRotation != this->m_Search_RotationStart &&
+                this->m_Search_OldSeedSize > Vision::FOUND_AREA_IS_LIKLY_PATH_THRESHOLD)
+            {
+                if (this->m_Search_OldSeedSize < seedGroup.SIZE)
+                    this->m_AlternitavePaths[this->m_AlternitavePaths.size() - 1].rotation = this->m_CurrentPosition.rotation;
+            }
+            else
+                this->m_AlternitavePaths.emplace_back(this->m_CurrentPosition, AlternativePath::SEARCH);
+        }
+
+        this->m_Search_OldSeedSize = seedGroup.SIZE;
         if (this->m_Search_BestSearchResult.first < seedGroup.SIZE){
             this->m_Search_BestSearchResult.first = seedGroup.SIZE;
             this->m_Search_BestSearchResult.second = this->m_Search_CurrentRotation;
@@ -390,19 +402,19 @@ std::vector<Transmission> Vision::_searchPath(const SeedVector& seedGroup){
         this->m_OnPath = true;
         this->m_SearchType = Vision::SEARCH_PATH_TYPE::NO_SEARCH;
         ret.emplace_back(Transmission::Action::NO_ACTION, int16_t(0));
-        this->_restSearchState();
+        this->_resetSearchState();
     }
     return ret;
 }
 
-void Vision::_restSearchState(){
+void Vision::_resetSearchState(){
     // reset state for next search
     this->m_Search_RotationEnd = -1.f;
     this->m_Search_RotationStart = -1.f;
     this->m_Search_CurrentRotation = std::numeric_limits<float>::quiet_NaN();
 }
 
-std::vector<Transmission> Vision::_dogeObject(const cv::Mat& disparity){
+std::vector<Transmission> Vision::_dodgeObject(const cv::Mat& disparity){
     std::vector<Transmission> ret;
     const int start_y_value = disparity.rows * Vision::DISPARITY_SEARCH_HEIGHT / 2.f;
     int start_x_value = disparity.cols * (1.f - Vision::DISPARTIY_SEARCH_X_THICKNESS) / 2.f;
@@ -419,7 +431,7 @@ std::vector<Transmission> Vision::_dogeObject(const cv::Mat& disparity){
     cv::waitKey(10);
 #endif
 
-    uchar brightness = Vision::MIN_DOGE_BRIGHTNESS;
+    uchar brightness = Vision::MIN_DODGE_BRIGHTNESS;
     int brightestPixel_x = -1;
     for (int y = 0; !ret.size() && y < disparity.rows * Vision::DISPARITY_SEARCH_HEIGHT; ++y){
     for (int x = start_x_value; x < max_x_value; ++x) {
@@ -431,42 +443,42 @@ std::vector<Transmission> Vision::_dogeObject(const cv::Mat& disparity){
     }
     if (brightestPixel_x >= 0){
         // doge left or right?
-        if (this->m_Doge_LastDoge == Transmission::Action::NO_ACTION){
+        if (this->m_Dodge_LastDodge == Transmission::Action::NO_ACTION){
             if (brightestPixel_x < (start_x_value + max_x_value) / 2)
                 ret.emplace_back(Transmission::Action::MOVE_LEFT, int16_t(Vision::MOVEMENTSPEED));
             else
                 ret.emplace_back(Transmission::Action::MOVE_RIGHT, int16_t(Vision::MOVEMENTSPEED));
         }
         else
-            ret.emplace_back(this->m_Doge_LastDoge, int16_t(Vision::MOVEMENTSPEED));
+            ret.emplace_back(this->m_Dodge_LastDodge, int16_t(Vision::MOVEMENTSPEED));
     }
     //this->m_LastDoge = Transmission::Action::NO_ACTION;
     auto setSearchType = [this]() mutable{
-        if (this->m_Doge_LastDoge == Transmission::Action::MOVE_LEFT)
+        if (this->m_Dodge_LastDodge == Transmission::Action::MOVE_LEFT)
             this->m_SearchType = Vision::SEARCH_PATH_TYPE::SEARCH_270_DEGREE_LEFT;
-        else if (this->m_Doge_LastDoge == Transmission::Action::MOVE_RIGHT)
+        else if (this->m_Dodge_LastDodge == Transmission::Action::MOVE_RIGHT)
             this->m_SearchType = Vision::SEARCH_PATH_TYPE::SEARCH_270_DEGREE_RIGHT;
         else
             this->m_SearchType =  Vision::SEARCH_PATH_TYPE::SEARCH_180_DEGREE;
     };
 
     if (ret.size()) {
-        this->m_Doge_LastDoge = ret[0].action;
-        this->m_Doge_StepDistance = 0;
+        this->m_Dodge_LastDodge = ret[0].action;
+        this->m_Dodge_StepDistance = 0;
         this->m_OnPath = false;
-        if (this->m_SearchType == Vision::SEARCH_PATH_TYPE::MOVING && this->m_Doge_LastDoge != Transmission::Action::MOVE_BACKWARD)
+        if (this->m_SearchType == Vision::SEARCH_PATH_TYPE::MOVING && this->m_Dodge_LastDodge != Transmission::Action::MOVE_BACKWARD)
             setSearchType();
     }
-    else if (this->m_Doge_LastDoge != Transmission::Action::NO_ACTION){
-        if (this->m_Doge_StepDistance < Vision::STEP_DISTANCE){
-            this->m_Doge_StepDistance += Vision::MOVEMENTSPEED;
+    else if (this->m_Dodge_LastDodge != Transmission::Action::NO_ACTION){
+        if (this->m_Dodge_StepDistance < Vision::STEP_DISTANCE){
+            this->m_Dodge_StepDistance += Vision::MOVEMENTSPEED;
             ret.emplace_back(Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED));
         }
         else{
             setSearchType();
-            this->m_Doge_LastDoge = Transmission::Action::NO_ACTION;
+            this->m_Dodge_LastDodge = Transmission::Action::NO_ACTION;
             this->m_OnPath = false;
-            this->_restSearchState();
+            this->_resetSearchState();
         }
     }
     else{}
