@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -11,19 +11,21 @@ using Emgu.CV;
 using Emgu.CV.Structure;
 using GLab.Core;
 
-namespace GLab.Example.VrAibo
+namespace Frame.VrAibo
 {
     class Server
     {
-        public enum ClientAction
-        {
-            NO_ACTION,
-            CLOSE_CONNECTION, DISCONNECTED,
-            INC_SPEED, DEC_SPEED,
+        public enum ClientAction : byte {
+            NO_ACTION = 0,
+
+            // optional features
+            TELEPORT,
+
+            // actual commands
             MOVE_FORWARD, MOVE_LEFT, MOVE_RIGHT, MOVE_BACKWARD,
             ROTATE_LEFT, ROTATE_RIGHT,
             HEAD_LEFT, HEAD_RIGHT, HEAD_UP, HEAD_DOWN
-        }
+        };
 
         Socket _listener;
         IPHostEntry _ipHostInfo;
@@ -31,7 +33,7 @@ namespace GLab.Example.VrAibo
         IPEndPoint _localEndPoint;
         Socket _handler;
 
-        byte[] _buffer = new byte[256 * 256 * 3];
+        private const int CLIENT_ACTION_SIZE = 3;
 
         public Server(int port)
         {
@@ -78,28 +80,21 @@ namespace GLab.Example.VrAibo
             }
         }
 
-        public bool sendImage(Bitmap img)
+
+
+        bool sendBytes(byte[] buffer)
         {
-            for (int y = 0, bufferIter = 0; y < img.Height; ++y)
-            {
-                for (int x = 0; x < img.Width; ++x)
-                {
-                    _buffer[bufferIter++] = (byte)img.GetPixel(x, y).B;
-                    _buffer[bufferIter++] = (byte)img.GetPixel(x, y).G;
-                    _buffer[bufferIter++] = (byte)img.GetPixel(x, y).R;
-                }
-            }
             try
             {
                 int sentData = 0;
-                sentData += _handler.Send(_buffer);
-                while (sentData != _buffer.Length) 
+                sentData += _handler.Send(buffer);
+                while (sentData != buffer.Length)
                 {
-                    byte[] shitCSharp = new byte[_buffer.Length - sentData];
+                    byte[] shitCSharp = new byte[buffer.Length - sentData];
                     for (int i = 0; i < shitCSharp.Length; ++i)
-                        shitCSharp[i] = _buffer[sentData + i];
+                        shitCSharp[i] = buffer[sentData + i];
                     sentData += _handler.Send(shitCSharp);
-                } 
+                }
                 return true;
             }
             catch (Exception e)
@@ -107,81 +102,81 @@ namespace GLab.Example.VrAibo
             }
             return false;
         }
-        public Server.ClientAction receiveAction()
+
+
+        byte[] _aiboPosBuffer = new byte[6];
+        public bool sendAiboPosition(Int16 pos_x, Int16 pos_y, Int16 rotation)
+        {
+            byte[] tmp;
+            tmp = BitConverter.GetBytes(pos_x);
+            _aiboPosBuffer[0] = tmp[0];
+            _aiboPosBuffer[1] = tmp[1];
+
+            tmp = BitConverter.GetBytes(pos_y);
+            _aiboPosBuffer[2] = tmp[0];
+            _aiboPosBuffer[3] = tmp[1];
+
+            tmp = BitConverter.GetBytes(rotation);
+            _aiboPosBuffer[4] = tmp[0];
+            _aiboPosBuffer[5] = tmp[1];
+
+            return this.sendBytes(_aiboPosBuffer);
+        }
+
+        byte[] _buffer = new byte[256 * 256];
+        public bool sendGrayImage(Image<Gray, byte> img)
+        {
+            for (int y = 0, bufferIter = 0; y < img.Height; ++y)
+            {
+                for (int x = 0; x < img.Width; ++x)
+                {
+                    _buffer[bufferIter++] = img.Data[y, x, 0];
+                }
+            }
+
+            return this.sendBytes(_buffer);
+        }
+
+        public List<KeyValuePair<ClientAction, Int16>> receiveAction()
         {
             try
             {
                 byte[] bytes = new byte[256];
-                int bytesRec = _handler.Receive(bytes);
-                _data = Encoding.ASCII.GetString(bytes, 0, bytesRec);
-                #region
-                if (_data.IndexOf("<EOF>") > -1)
+                bytes[0] = 1 + CLIENT_ACTION_SIZE;
+                int bytesRec = 0;
                 {
-                    return Server.ClientAction.CLOSE_CONNECTION;
+                    SocketError ec;
+                    int CONNECTION_LOST_COUNTER = 0;
+                    do
+                    {
+                        int readBytes = _handler.Receive(bytes, bytesRec, bytes[0] - bytesRec, SocketFlags.None, out ec);
+                        bytesRec += readBytes;
+                        if (ec != SocketError.Success || readBytes == 0)
+                        {
+                            ++CONNECTION_LOST_COUNTER;
+                            if (CONNECTION_LOST_COUNTER > 10 || ec == SocketError.ConnectionAborted)
+                                return new List<KeyValuePair<ClientAction, Int16>>();
+                            System.Threading.Thread.Sleep(20);
+                        }
+
+                    } while (bytes[0] != bytesRec);
                 }
 
-                if (_data == "CLOSE_CONNECTION")
+                int actionCount = bytesRec / Server.CLIENT_ACTION_SIZE;
+                List<KeyValuePair<ClientAction, Int16>> toReturn = new List<KeyValuePair<ClientAction, Int16>>(actionCount);
+                for (int currentAction = 0; currentAction < actionCount; ++currentAction)
                 {
-                    return Server.ClientAction.CLOSE_CONNECTION;
+                    int byteIdx = currentAction * Server.CLIENT_ACTION_SIZE + 1;
+                    Server.ClientAction clientAction = (Server.ClientAction)bytes[byteIdx];
+                    Int16 parameter = (short)((bytes[byteIdx + 2] << 8) | bytes[byteIdx + 1]);
+                    toReturn.Add(new KeyValuePair<ClientAction, Int16>(clientAction, parameter));
                 }
-                else if (_data == "INC_SPEED")
-                {
-                    return Server.ClientAction.INC_SPEED;
-                }
-                else if (_data == "DEC_SPEED")
-                {
-                    return Server.ClientAction.DEC_SPEED;
-                }
-                else if (_data == "MOVE_FORWARD")
-                {
-                    return Server.ClientAction.MOVE_FORWARD;
-                }
-                else if (_data == "MOVE_LEFT")
-                {
-                    return Server.ClientAction.MOVE_LEFT;
-                }
-                else if (_data == "MOVE_RIGHT")
-                {
-                    return Server.ClientAction.MOVE_RIGHT;
-                }
-                else if (_data == "MOVE_BACKWARD")
-                {
-                    return Server.ClientAction.MOVE_BACKWARD;
-                }
-                else if (_data == "ROTATE_LEFT")
-                {
-                    return Server.ClientAction.ROTATE_LEFT;
-                }
-                else if (_data == "ROTATE_RIGHT")
-                {
-                    return Server.ClientAction.ROTATE_RIGHT;
-                }
-                else if (_data == "HEAD_LEFT")
-                {
-                    return Server.ClientAction.HEAD_LEFT;
-                }
-                else if (_data == "HEAD_RIGHT")
-                {
-                    return Server.ClientAction.HEAD_RIGHT;
-                }
-                else if (_data == "HEAD_UP")
-                {
-                    return Server.ClientAction.HEAD_UP;
-                }
-                else if (_data == "HEAD_DOWN")
-                {
-                    return Server.ClientAction.HEAD_DOWN;
-                }
-                else
-                {
-                    return Server.ClientAction.NO_ACTION;
-                }
-                #endregion
+                return toReturn;
             }
             catch (Exception e)
             {
+                return new List<KeyValuePair<ClientAction, Int16>>();
             }
-            return Server.ClientAction.NO_ACTION;
         }
     }
 }
