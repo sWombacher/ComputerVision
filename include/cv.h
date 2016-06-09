@@ -94,7 +94,7 @@ private:
     void _resetSearchState();
 
 /// Dodge objects
-    static constexpr float DISPARTIY_SEARCH_X_THICKNESS = 1.f / 3.f;
+    static constexpr float DISPARTIY_SEARCH_X_THICKNESS = 1.f / 2.f;
     static constexpr float DISPARITY_SEARCH_HEIGHT = 0.5f;
     static constexpr uchar MIN_DODGE_BRIGHTNESS = 220;
     static constexpr int STEP_DISTANCE = 800;

@@ -212,8 +212,12 @@ std::vector<Transmission> Vision::_followPath(const SeedVector &seedGroup){
         }
         else{}
     }
-    if (std::abs(relativeMovement_x) < 30.f || !ret.size())
+    if (std::abs(relativeMovement_x) < 20.f || !ret.size())
         ret.emplace_back(Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED));
+    else if (std::abs(relativeMovement_x) < 40.f || !ret.size())
+        ret.emplace_back(Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED / 10));
+    else{}
+
     this->m_FollowPath_LastRotation = ret[0].action;
 
     // search for alternative paths
@@ -234,8 +238,8 @@ Vision::SeedVector Vision::_getVectorContainingMostSeeds(const cv::Mat &center) 
     constexpr int seed_start_height = Vision::SEED_START_Y * Vision::IMAGES_HEIGHT;
     cv::line(center_cpy, {0, seed_start_height}, {center_cpy.cols, seed_start_height}, {0}, 1);
 
-    cv::blur(center_cpy, center_cpy, {7,7});
-    IMSHOW_D(center_cpy);
+    //cv::blur(center_cpy, center_cpy, {7,7});
+    //IMSHOW_D(center_cpy);
 
     std::array<bool, Vision::SEED_COUNT> usedSeeds;
     for (auto& e : usedSeeds)
@@ -370,11 +374,15 @@ std::vector<Transmission> Vision::_searchPath(const SeedVector& seedGroup){
             if (this->m_Search_CurrentRotation != this->m_Search_RotationStart &&
                 this->m_Search_OldSeedSize > Vision::FOUND_AREA_IS_LIKLY_PATH_THRESHOLD)
             {
-                if (this->m_Search_OldSeedSize < seedGroup.SIZE)
+                if (this->m_Search_OldSeedSize < seedGroup.SIZE){
+                    std::cout << "Override path\n";
                     this->m_AlternitavePaths[this->m_AlternitavePaths.size() - 1].rotation = this->m_CurrentPosition.rotation;
+                }
             }
-            else
+            else{
+                std::cout << "Alternative path found\n";
                 this->m_AlternitavePaths.emplace_back(this->m_CurrentPosition, AlternativePath::SEARCH);
+            }
         }
 
         this->m_Search_OldSeedSize = seedGroup.SIZE;
