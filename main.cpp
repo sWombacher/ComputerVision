@@ -38,7 +38,7 @@ int main(int, char**)
     try {
         const char* port = "11000";
         const char* addr = "192.168.2.193";
-        //const char* addr = "141.100.5";
+        //const char* addr = "141.100.51.12";
 
         boost::asio::io_service io_service;
         boost::asio::ip::tcp::socket socket(io_service);
@@ -99,6 +99,8 @@ int main(int, char**)
             receiveImage(right);
 
             std::vector<Transmission> actions = vision.getAction(pos_x, pos_y, rot, left, center, right);
+            cv::waitKey(1);
+
             size_t sendSize = actions.size() * Transmission::WRITE_SIZE + 1;
             std::string toSend(sendSize, '\0');
             toSend[0] = char(sendSize);

@@ -31,14 +31,12 @@ private:
     std::mt19937 m_Mersenne = std::mt19937(42);
 
 /// general data and functions
-    bool m_OnPath = false;
-
     static constexpr int IMAGES_WIDTH = 256;
     static constexpr int IMAGES_HEIGHT = 256;
 
     static constexpr float CAMERA_ROTATION_SCALE = 100;
     static constexpr int16_t CAMERA_ROTATION = 10 * CAMERA_ROTATION_SCALE;
-    static constexpr int16_t MOVEMENTSPEED = 80; // values in percent
+    static constexpr int16_t MOVEMENTSPEED = 25; // values in percent
 
     static constexpr float SEED_START_Y = 0.60f;
     static constexpr int NUM_SEEDS_Y = 8;
@@ -58,22 +56,33 @@ private:
         int16_t rotation;
     };
     struct AlternativePath : public Path{
-        enum NEXT_TASK{ SEARCH, DODGE_LEFT, DODGE_RIGHT };
+        enum class NEXT_TASK { SEARCH, DODGE_LEFT, DODGE_RIGHT };
         NEXT_TASK m_NextTask;
         AlternativePath(const Path& p, NEXT_TASK t):AlternativePath::Path(p),m_NextTask(t){}
     };
     std::vector<AlternativePath> m_AlternitavePaths;
     Path m_CurrentPosition;
 
+    bool m_OnPath = false;
+    int m_IgnoreVisitedPositionCount = 100;
+    std::vector<Path> m_VisitedPoints;
+
+    Path m_OldVistedPoint = {-10000, -10000, -10000};
+    void _saveCurrentPoint();
+    std::vector<Transmission> _getAlternativePath();
+
 
 /// follow path
-    enum class FOLLOW_PATH_TYPE{ HEAD_LEFT, HEAD_FORWARD, HEAD_RIGHT };
-    FOLLOW_PATH_TYPE m_FollowPathType = FOLLOW_PATH_TYPE::HEAD_FORWARD;
-    static constexpr int PATH_LOST_COUNT = 7;
+    static constexpr int PATH_LOST_STEP_DISTANCE = 1000;
     static constexpr int PATH_LOST_SEED_THRESHOLD = 1500;
     static constexpr int FOLLOW_PATH_SCANLINE_HEIGHT = 0.90f * IMAGES_HEIGHT;
 
-    int m_FollowPath_PathLostCounter = 0;
+    int m_FollowPath_PathLostStepCounter = 0;
+    int m_MultiPathCounter = 0;
+    int m_SaveMultiPath_Threshold = 2;
+    enum MULTIPATH_DIR { NONE = 0, LEFT = 1, RIGHT = 2, LEFT_RIGHT = LEFT | RIGHT};
+    MULTIPATH_DIR m_MultiPathDirection = MULTIPATH_DIR::NONE;
+
     Transmission::Action m_FollowPath_LastRotation = Transmission::Action::NO_ACTION;
 
     std::vector<cv::Point> m_VisitedTurnings;
@@ -85,6 +94,7 @@ private:
                                  SEARCH_360_DEGREE };
     SEARCH_PATH_TYPE m_SearchType = SEARCH_PATH_TYPE::SEARCH_180_DEGREE;
     float m_Search_CurrentRotation = std::numeric_limits<float>::quiet_NaN();
+    bool m_Search_EnableAlternativePaths = false;
     int m_Search_RotationStart = -1.f;
     int m_Search_RotationEnd = -1.f;
     int m_Search_OldSeedSize = -1;
@@ -95,9 +105,9 @@ private:
 
 /// Dodge objects
     static constexpr float DISPARTIY_SEARCH_X_THICKNESS = 1.f / 2.f;
-    static constexpr float DISPARITY_SEARCH_HEIGHT = 0.5f;
+    static constexpr float DISPARITY_SEARCH_HEIGHT = 0.56f;
     static constexpr uchar MIN_DODGE_BRIGHTNESS = 220;
-    static constexpr int STEP_DISTANCE = 800;
+    static constexpr int DOGE_STEP_DISTANCE = 1000;
     static constexpr int DISPARITY_OFFSET_X = 30; /// TODO set correct offset_x
 
     int m_Dodge_StepDistance = 0;

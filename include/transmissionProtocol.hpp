@@ -6,13 +6,13 @@ struct Transmission {
     enum class Action : char {
         NO_ACTION = 0,
 
-        // optional features
-        TELEPORT,
-
         // actual commands
         MOVE_FORWARD, MOVE_LEFT, MOVE_RIGHT, MOVE_BACKWARD,
         ROTATE_LEFT, ROTATE_RIGHT,
-        HEAD_LEFT, HEAD_RIGHT, HEAD_UP, HEAD_DOWN
+        HEAD_LEFT, HEAD_RIGHT, HEAD_UP, HEAD_DOWN,
+
+        // optional features
+        TELEPORT_X, TELEPORT_Y, TELEPORT_ROT
     };
     Transmission(Action a, int16_t parameter): action(a), actionParameter(parameter){}
 

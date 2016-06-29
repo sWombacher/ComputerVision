@@ -8,8 +8,7 @@
 
 #ifdef DEBUG
 #define IMSHOW_D(X) \
-    cv::imshow(#X, X); \
-    cv::waitKey(10);
+    cv::imshow(#X, X);
 #else
 #define IMSHOW_D(X)
 #endif
@@ -25,10 +24,35 @@ std::array<cv::Point2i, Vision::SEED_COUNT> Vision::SEEDS = {};
 
 std::vector<Transmission> Vision::getAction(int16_t pos_x, int16_t pos_y, int16_t rotation, cv::Mat &left, cv::Mat& center, cv::Mat &right) {
     cv::Mat disparity;
+    std::vector<Transmission> actions;
+
+    // check for already visited piont
+    if (this->m_IgnoreVisitedPositionCount)
+        this->m_IgnoreVisitedPositionCount--;
+    else{
+        if (this->m_VisitedPoints.size() > 8196){
+            // earase frist half elements
+            this->m_VisitedPoints.erase(std::begin(this->m_VisitedPoints),
+                                        std::begin(this->m_VisitedPoints) + this->m_VisitedPoints.size());
+        }
+        for (const auto& e : this->m_VisitedPoints){
+            int16_t rel_x = e.pos_x - pos_x;
+            int16_t rel_y = e.pos_y - pos_y;
+            if (std::abs(rel_x) < Vision::MOVEMENTSPEED * 5 &&
+                std::abs(rel_y) < Vision::MOVEMENTSPEED * 5)
+            {
+                // position identical
+                actions =  this->_getAlternativePath();
+                if (actions.size())
+                    return actions;
+            }
+        }
+    }
 
     this->m_CurrentPosition.pos_x = pos_x;
     this->m_CurrentPosition.pos_y = pos_y;
     this->m_CurrentPosition.rotation = rotation;
+
 
     auto left_matcher = cv::StereoBM::create();
     auto right_matcher = cv::ximgproc::createRightMatcher(left_matcher);
@@ -41,8 +65,6 @@ std::vector<Transmission> Vision::getAction(int16_t pos_x, int16_t pos_y, int16_
 
     IMSHOW_D(disparity);
     IMSHOW_D(center);
-
-    std::vector<Transmission> actions;
 
     // object in front of camera?
     // only dodge if aibo is not searching for a path
@@ -71,7 +93,6 @@ std::vector<Transmission> Vision::getAction(int16_t pos_x, int16_t pos_y, int16_
 
     // no movement set
     // try moving forward and receive new images
-    //return {{ Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED) }};
     return {{ Transmission::Action::NO_ACTION, int16_t(0) }};
 }
 
@@ -93,6 +114,41 @@ void Vision::_SETUP_SEEDS(){
     }
 }
 
+std::vector<Transmission> Vision::_getAlternativePath(){
+    std::vector<Transmission> ret;
+    debug(std::cout << "Use alternative path\n");
+    this->m_IgnoreVisitedPositionCount = 50;
+
+    if (!this->m_AlternitavePaths.size())
+        return ret;
+
+    const AlternativePath& tmp = this->m_AlternitavePaths[this->m_AlternitavePaths.size() - 1];
+    ret.emplace_back(Transmission::Action::TELEPORT_X, tmp.pos_x);
+    ret.emplace_back(Transmission::Action::TELEPORT_Y, tmp.pos_y);
+    ret.emplace_back(Transmission::Action::TELEPORT_ROT, tmp.rotation);
+
+    this->m_OldVistedPoint.pos_x = tmp.pos_x;
+    this->m_OldVistedPoint.pos_y = tmp.pos_y;
+    this->m_OldVistedPoint.rotation = tmp.rotation;
+
+    switch(tmp.m_NextTask){
+    case AlternativePath::NEXT_TASK::SEARCH:
+        this->m_SearchType = Vision::SEARCH_PATH_TYPE::SEARCH_0_DEGREE;
+        break;
+    case AlternativePath::NEXT_TASK::DODGE_LEFT:
+        this->m_Dodge_LastDodge = Transmission::Action::MOVE_LEFT;
+        break;
+    case AlternativePath::NEXT_TASK::DODGE_RIGHT:
+        this->m_Dodge_LastDodge = Transmission::Action::MOVE_RIGHT;
+        break;
+    default:
+        throw std::runtime_error("Why?");
+    }
+
+    this->m_AlternitavePaths.pop_back();
+    return ret;
+}
+
 std::vector<Transmission> Vision::_followPath(const SeedVector &seedGroup){
     std::vector<Transmission> ret;
 
@@ -100,11 +156,16 @@ std::vector<Transmission> Vision::_followPath(const SeedVector &seedGroup){
     // the area with the most seeds will be set as path
 
     auto pathLost = [this, &ret]() mutable {
-        ++this->m_FollowPath_PathLostCounter;
-        if (this->m_FollowPath_PathLostCounter == Vision::PATH_LOST_COUNT){
+        if (this->m_FollowPath_PathLostStepCounter == 0)
+            this->_saveCurrentPoint();
+
+        this->m_FollowPath_PathLostStepCounter += MOVEMENTSPEED;
+        if (this->m_FollowPath_PathLostStepCounter >= Vision::PATH_LOST_STEP_DISTANCE){
             this->m_OnPath = false;
-            this->m_FollowPath_PathLostCounter = 0;
-            this->m_SearchType = Vision::SEARCH_PATH_TYPE::SEARCH_360_DEGREE;
+            this->m_FollowPath_PathLostStepCounter = 0;
+            ret = this->_getAlternativePath();
+
+            return;
         }
         ret.emplace_back(Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED * 2));
     };
@@ -137,8 +198,13 @@ std::vector<Transmission> Vision::_followPath(const SeedVector &seedGroup){
             else{
                 if (oldPoint == i - 1 && pathMidPoints.size()){
                     // adjust point to be actual in the middle
-                    pathMidPoints[pathMidPoints.size() - 1] += i-1;
-                    pathMidPoints[pathMidPoints.size() - 1] /= 2;
+                    int pathSize = i - 1 - pathMidPoints[pathMidPoints.size() - 1];
+                    if (pathSize >= 40){
+                        pathMidPoints[pathMidPoints.size() - 1] += i-1;
+                        pathMidPoints[pathMidPoints.size() - 1] /= 2;
+                    }
+                    else
+                        pathMidPoints.pop_back();
                 }
             }
         }
@@ -152,32 +218,6 @@ std::vector<Transmission> Vision::_followPath(const SeedVector &seedGroup){
 
     std::vector<int> pathMidPoints0 = getMidPointsByHeight(Vision::FOLLOW_PATH_SCANLINE_HEIGHT - 2);
     std::vector<int> pathMidPoints1 = getMidPointsByHeight(Vision::FOLLOW_PATH_SCANLINE_HEIGHT + 2);
-
-#ifdef DEBUG
-    const cv::Mat& tmp = seedGroup.floodedImage;
-    cv::line(tmp, {0, Vision::FOLLOW_PATH_SCANLINE_HEIGHT - 2},
-                  {tmp.cols - 1, Vision::FOLLOW_PATH_SCANLINE_HEIGHT - 2}, {127}, 1);
-    cv::line(tmp, {0, Vision::FOLLOW_PATH_SCANLINE_HEIGHT + 2},
-                  {tmp.cols - 1, Vision::FOLLOW_PATH_SCANLINE_HEIGHT + 2}, {127}, 1);
-    cv::imshow("Scanline", tmp);
-    cv::waitKey(10);
-#endif
-
-    if (pathMidPoints1.size() && pathMidPoints0.size()){
-        if (pathMidPoints0.size() > 1 || pathMidPoints1.size() > 1){
-            // multiple paths found
-            std::cout << "Multi paths" << std::endl;
-        }
-        else{
-            // only one path found
-        }
-    }
-    else{
-        // no path found
-        debug(std::cout << "Path lost on scanline" << std::endl);
-        pathLost();
-        return ret;
-    }
 
     // get best mid point
     int bestMid = -1;
@@ -193,6 +233,60 @@ std::vector<Transmission> Vision::_followPath(const SeedVector &seedGroup){
         }
     }
 
+#ifdef DEBUG
+    const cv::Mat& tmp = seedGroup.floodedImage;
+    cv::line(tmp, {0, Vision::FOLLOW_PATH_SCANLINE_HEIGHT - 2},
+                  {tmp.cols - 1, Vision::FOLLOW_PATH_SCANLINE_HEIGHT - 2}, {127}, 1);
+    cv::line(tmp, {0, Vision::FOLLOW_PATH_SCANLINE_HEIGHT + 2},
+                  {tmp.cols - 1, Vision::FOLLOW_PATH_SCANLINE_HEIGHT + 2}, {127}, 1);
+    cv::imshow("Scanline", tmp);
+#endif
+
+    if (pathMidPoints1.size() && pathMidPoints0.size()){
+        if (pathMidPoints0.size() > 1 || pathMidPoints1.size() > 1){
+            // multiple paths found
+            ++this->m_MultiPathCounter;
+
+            // check left
+            for (const auto& e : pathMidPoints0){
+                if (e < bestMid)
+                    this->m_MultiPathDirection = (MULTIPATH_DIR)(this->m_MultiPathDirection | MULTIPATH_DIR::LEFT);
+            }
+
+            // check right
+            for (const auto& e : pathMidPoints1){
+                if (e > bestMid)
+                    this->m_MultiPathDirection = (MULTIPATH_DIR)(this->m_MultiPathDirection | MULTIPATH_DIR::RIGHT);
+            }
+        }
+        else{
+            // only one path found
+            if (this->m_MultiPathCounter >= this->m_SaveMultiPath_Threshold){
+                if (this->m_MultiPathDirection & MULTIPATH_DIR::LEFT){
+                    debug(std::cout << "Multi path saved left" << std::endl);
+                    this->m_AlternitavePaths.emplace_back(this->m_CurrentPosition, AlternativePath::NEXT_TASK::SEARCH);
+                    this->m_AlternitavePaths[this->m_AlternitavePaths.size() - 1].rotation += 9000;
+                }
+                if (this->m_MultiPathDirection & MULTIPATH_DIR::RIGHT){
+                    debug(std::cout << "Multi path saved right" << std::endl);
+                    this->m_AlternitavePaths.emplace_back(this->m_CurrentPosition, AlternativePath::NEXT_TASK::SEARCH);
+                    this->m_AlternitavePaths[this->m_AlternitavePaths.size() - 1].rotation -= 9000;
+                }
+                this->m_MultiPathDirection = MULTIPATH_DIR::NONE;
+
+                // save visited point
+                this->_saveCurrentPoint();
+            }
+            this->m_MultiPathCounter = 0;
+        }
+    }
+    else{
+        // no path found
+        debug(std::cout << "Path lost on scanline" << std::endl);
+        pathLost();
+        return ret;
+    }
+
     float relativeMovement_x = bestMid - seedGroup.floodedImage.cols / 2;
 
     if (std::abs(relativeMovement_x) > 20.f){
@@ -205,7 +299,7 @@ std::vector<Transmission> Vision::_followPath(const SeedVector &seedGroup){
         }
         //else if (relativeMovement_x > 0.f && this->m_FollowPath_LastRotation != Transmission::Action::ROTATE_LEFT)
         else if (relativeMovement_x > 0.f){
-            int16_t angle = Vision::CAMERA_ROTATION / 2;
+            int16_t angle = Vision::CAMERA_ROTATION / 3;
             if (this->m_FollowPath_LastRotation == Transmission::Action::ROTATE_LEFT)
                 angle = Vision::CAMERA_ROTATION / (Vision::CAMERA_ROTATION_SCALE * 100);
             ret.emplace_back(Transmission::Action::ROTATE_RIGHT, int16_t(angle));
@@ -214,20 +308,14 @@ std::vector<Transmission> Vision::_followPath(const SeedVector &seedGroup){
     }
     if (std::abs(relativeMovement_x) < 20.f || !ret.size())
         ret.emplace_back(Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED));
-    else if (std::abs(relativeMovement_x) < 40.f || !ret.size())
+    else if (std::abs(relativeMovement_x) < 30.f || !ret.size())
         ret.emplace_back(Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED / 10));
     else{}
 
     this->m_FollowPath_LastRotation = ret[0].action;
 
-    // search for alternative paths
-    /// mabe TODO :D
-
-    // simplified,
-    // search for alternernative paths
-
     // path found
-    this->m_FollowPath_PathLostCounter = 0;
+    this->m_FollowPath_PathLostStepCounter = 0;
     return ret;
 }
 
@@ -289,7 +377,6 @@ Vision::SeedVector Vision::_getVectorContainingMostSeeds(const cv::Mat &center) 
     cv::threshold(output, output, 0, 255, cv::THRESH_BINARY);
 
 #ifdef DEBUG
-    /*
     center_cpy = output.clone();
     cv::circle(center_cpy,bestGroup.vec[0], 3, {127});
 
@@ -297,12 +384,22 @@ Vision::SeedVector Vision::_getVectorContainingMostSeeds(const cv::Mat &center) 
         cv::circle(center_cpy, e, 2, {0}, 1);
 
     cv::imshow("Seeded path", center_cpy);
-    */
-    cv::imshow("Flooded", output);
-    cv::waitKey(10);
+    //cv::imshow("Flooded", output);
 #endif
-
     return bestGroup;
+}
+
+void Vision::_saveCurrentPoint(){
+    int16_t rel_x = this->m_OldVistedPoint.pos_x - this->m_CurrentPosition.pos_x;
+    int16_t rel_y = this->m_OldVistedPoint.pos_y - this->m_CurrentPosition.pos_y;
+    if (std::abs(rel_x) > Vision::MOVEMENTSPEED * 5 &&
+        std::abs(rel_y) > Vision::MOVEMENTSPEED * 5)
+    {
+        std::cout << "Save current point\n";
+        this->m_VisitedPoints.push_back(this->m_CurrentPosition);
+        this->m_IgnoreVisitedPositionCount = 50;
+    }
+    this->m_OldVistedPoint = this->m_CurrentPosition;
 }
 
 std::vector<Transmission> Vision::_searchPath(const SeedVector& seedGroup){
@@ -313,22 +410,27 @@ std::vector<Transmission> Vision::_searchPath(const SeedVector& seedGroup){
     if (std::isnan(this->m_Search_CurrentRotation)){
         switch (this->m_SearchType){
         case Vision::SEARCH_PATH_TYPE::SEARCH_0_DEGREE:
+            this->m_Search_EnableAlternativePaths = false;
             this->m_Search_RotationStart = 0.f;
             this->m_Search_RotationEnd = 0.f;
             break;
         case Vision::SEARCH_PATH_TYPE::SEARCH_180_DEGREE:
+            this->m_Search_EnableAlternativePaths = true;
             this->m_Search_RotationStart = -90.f;
             this->m_Search_RotationEnd = 90.f;
             break;
         case Vision::SEARCH_PATH_TYPE::SEARCH_270_DEGREE_LEFT:
+            this->m_Search_EnableAlternativePaths = true;
             this->m_Search_RotationStart = -180.f;
             this->m_Search_RotationEnd = 90.f;
             break;
         case Vision::SEARCH_PATH_TYPE::SEARCH_270_DEGREE_RIGHT:
+            this->m_Search_EnableAlternativePaths = true;
             this->m_Search_RotationStart = -90.f;
             this->m_Search_RotationEnd = 180.f;
             break;
         case Vision::SEARCH_PATH_TYPE::SEARCH_360_DEGREE:
+            this->m_Search_EnableAlternativePaths = true;
             this->m_Search_RotationStart = 0.f;
             this->m_Search_RotationEnd = 360.f;
             break;
@@ -370,7 +472,7 @@ std::vector<Transmission> Vision::_searchPath(const SeedVector& seedGroup){
         }
     }
     else{
-        if (seedGroup.SIZE > Vision::FOUND_AREA_IS_LIKLY_PATH_THRESHOLD){
+        if (seedGroup.SIZE > Vision::FOUND_AREA_IS_LIKLY_PATH_THRESHOLD && this->m_Search_EnableAlternativePaths){
             if (this->m_Search_CurrentRotation != this->m_Search_RotationStart &&
                 this->m_Search_OldSeedSize > Vision::FOUND_AREA_IS_LIKLY_PATH_THRESHOLD)
             {
@@ -381,7 +483,7 @@ std::vector<Transmission> Vision::_searchPath(const SeedVector& seedGroup){
             }
             else{
                 std::cout << "Alternative path found\n";
-                this->m_AlternitavePaths.emplace_back(this->m_CurrentPosition, AlternativePath::SEARCH);
+                this->m_AlternitavePaths.emplace_back(this->m_CurrentPosition, AlternativePath::NEXT_TASK::SEARCH);
             }
         }
 
@@ -404,6 +506,8 @@ std::vector<Transmission> Vision::_searchPath(const SeedVector& seedGroup){
             int16_t angle(this->m_Search_CurrentRotation - this->m_Search_BestSearchResult.second);
             ret.emplace_back(Transmission::Action::ROTATE_LEFT, angle);
             this->m_SearchType = Vision::SEARCH_PATH_TYPE::MOVING;
+
+            this->_saveCurrentPoint();
         }
     }
     if (searchFinished){
@@ -424,8 +528,8 @@ void Vision::_resetSearchState(){
 
 std::vector<Transmission> Vision::_dodgeObject(const cv::Mat& disparity){
     std::vector<Transmission> ret;
-    const int start_y_value = disparity.rows * Vision::DISPARITY_SEARCH_HEIGHT / 2.f;
-    int start_x_value = disparity.cols * (1.f - Vision::DISPARTIY_SEARCH_X_THICKNESS) / 2.f;
+    const int start_y_value = int(disparity.rows * Vision::DISPARITY_SEARCH_HEIGHT / 2.f);
+    int start_x_value = int(disparity.cols * (1.f - Vision::DISPARTIY_SEARCH_X_THICKNESS) / 2.f);
     const int max_x_value = disparity.cols - start_x_value + Vision::DISPARITY_OFFSET_X;
     start_x_value += Vision::DISPARITY_OFFSET_X;
 
@@ -436,7 +540,7 @@ std::vector<Transmission> Vision::_dodgeObject(const cv::Mat& disparity){
                        {255});
     cv::circle(tmp, {(start_x_value + max_x_value) / 2, int(disparity.rows * Vision::DISPARITY_SEARCH_HEIGHT * 0.75)}, 2, {255});
     cv::imshow("Search rect", tmp);
-    cv::waitKey(10);
+    //cv::waitKey(10);
 #endif
 
     uchar brightness = Vision::MIN_DODGE_BRIGHTNESS;
@@ -452,10 +556,14 @@ std::vector<Transmission> Vision::_dodgeObject(const cv::Mat& disparity){
     if (brightestPixel_x >= 0){
         // doge left or right?
         if (this->m_Dodge_LastDodge == Transmission::Action::NO_ACTION){
-            if (brightestPixel_x < (start_x_value + max_x_value) / 2)
+            if (brightestPixel_x < (start_x_value + max_x_value) / 2) {
                 ret.emplace_back(Transmission::Action::MOVE_LEFT, int16_t(Vision::MOVEMENTSPEED));
-            else
+                this->m_AlternitavePaths.emplace_back(this->m_CurrentPosition, AlternativePath::NEXT_TASK::DODGE_RIGHT);
+            }
+            else{
                 ret.emplace_back(Transmission::Action::MOVE_RIGHT, int16_t(Vision::MOVEMENTSPEED));
+                this->m_AlternitavePaths.emplace_back(this->m_CurrentPosition, AlternativePath::NEXT_TASK::DODGE_LEFT);
+            }
         }
         else
             ret.emplace_back(this->m_Dodge_LastDodge, int16_t(Vision::MOVEMENTSPEED));
@@ -478,7 +586,7 @@ std::vector<Transmission> Vision::_dodgeObject(const cv::Mat& disparity){
             setSearchType();
     }
     else if (this->m_Dodge_LastDodge != Transmission::Action::NO_ACTION){
-        if (this->m_Dodge_StepDistance < Vision::STEP_DISTANCE){
+        if (this->m_Dodge_StepDistance < Vision::DOGE_STEP_DISTANCE){
             this->m_Dodge_StepDistance += Vision::MOVEMENTSPEED;
             ret.emplace_back(Transmission::Action::MOVE_FORWARD, int16_t(Vision::MOVEMENTSPEED));
         }
