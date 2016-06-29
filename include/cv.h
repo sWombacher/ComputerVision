@@ -107,8 +107,8 @@ private:
     static constexpr float DISPARTIY_SEARCH_X_THICKNESS = 1.f / 2.f;
     static constexpr float DISPARITY_SEARCH_HEIGHT = 0.56f;
     static constexpr uchar MIN_DODGE_BRIGHTNESS = 220;
-    static constexpr int DOGE_STEP_DISTANCE = 1000;
-    static constexpr int DISPARITY_OFFSET_X = 30; /// TODO set correct offset_x
+    static constexpr int DOGE_STEP_DISTANCE = 915;
+    static constexpr int DISPARITY_OFFSET_X = 30;
 
     int m_Dodge_StepDistance = 0;
     Transmission::Action m_Dodge_LastDodge = Transmission::Action::NO_ACTION;
